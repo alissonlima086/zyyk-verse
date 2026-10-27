@@ -1,0 +1,269 @@
+name: Build and audit AppImage
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/build.yml"
+      - ".github/compliance/**"
+      - "src/**"
+      - "src-tauri/**"
+      - "tests/**"
+      - "package.json"
+      - "package-lock.json"
+      - "vite.config.js"
+      - "tsconfig.json"
+      - "LICENSE"
+  push:
+    branches: [main]
+    tags: ["v*"]
+    paths:
+      - ".github/workflows/build.yml"
+      - ".github/compliance/**"
+      - "src/**"
+      - "src-tauri/**"
+      - "tests/**"
+      - "package.json"
+      - "package-lock.json"
+      - "vite.config.js"
+      - "tsconfig.json"
+      - "LICENSE"
+
+concurrency:
+  group: appimage-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_ABOUT_VERSION: 0.9.2
+  CARGO_AUDIT_VERSION: 0.22.2
+  SYFT_VERSION: 1.55.0
+
+jobs:
+  build-appimage:
+    name: Linux x86_64
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Configurar Rust
+        uses: dtolnay/rust-toolchain@7dcc700092a1a8b9c17ba0e140b4e34e93000946 # 1.90.0
+
+      - name: Habilitar repositórios de código-fonte do Ubuntu
+        shell: bash
+        run: |
+          sed -n 's/^deb /deb-src /p' /etc/apt/sources.list | sudo tee /etc/apt/sources.list.d/zyyk-deb-src.list >/dev/null
+
+      - name: Instalar dependências do sistema
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            libssl-dev \
+            patchelf \
+            pkg-config \
+            squashfs-tools \
+            xdg-utils \
+            gstreamer1.0-tools \
+            gstreamer1.0-alsa \
+            gstreamer1.0-plugins-base \
+            gstreamer1.0-plugins-good \
+            gstreamer1.0-plugins-bad
+
+      - name: Instalar ferramentas de auditoria fixadas
+        shell: bash
+        run: |
+          cargo install --locked --version "$CARGO_ABOUT_VERSION" --features cli cargo-about
+          curl --fail --location --silent --show-error \
+            "https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/syft_${SYFT_VERSION}_linux_amd64.tar.gz" \
+            --output /tmp/syft.tar.gz
+          echo "bb65249542db5fedeeb4d3f9b018b75e7264dbfbbb10486f044581a92f90490d  /tmp/syft.tar.gz" | sha256sum --check
+          sudo tar -xzf /tmp/syft.tar.gz -C /usr/local/bin syft
+          curl --fail --location --silent --show-error \
+            "https://github.com/rustsec/rustsec/releases/download/cargo-audit/v${CARGO_AUDIT_VERSION}/cargo-audit-x86_64-unknown-linux-musl-v${CARGO_AUDIT_VERSION}.tgz" \
+            --output /tmp/cargo-audit.tar.gz
+          echo "7fb9497f8594b389e5fce5ef9b92db08432996895b2e0c5a0167a69ed445c428  /tmp/cargo-audit.tar.gz" | sha256sum --check
+          tar -xzf /tmp/cargo-audit.tar.gz -C /tmp \
+            "cargo-audit-x86_64-unknown-linux-musl-v${CARGO_AUDIT_VERSION}/cargo-audit"
+          sudo install -m 0755 \
+            "/tmp/cargo-audit-x86_64-unknown-linux-musl-v${CARGO_AUDIT_VERSION}/cargo-audit" \
+            /usr/local/bin/cargo-audit
+          syft version
+          cargo audit --version
+
+      - name: Instalar dependências JavaScript
+        run: npm ci
+
+      - name: Validar versão da tag
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          package_version="$(node --print "require('./package.json').version")"
+          expected_tag="v${package_version}"
+          if [[ "${GITHUB_REF_NAME}" != "${expected_tag}" ]]; then
+            echo "A tag ${GITHUB_REF_NAME} não corresponde à versão ${package_version}." >&2
+            exit 1
+          fi
+
+      - name: Validar código-fonte
+        run: |
+          npm run test
+          npm run check
+          npm audit --audit-level=high
+          cargo test --manifest-path src-tauri/Cargo.toml --locked
+          cargo audit --file src-tauri/Cargo.lock
+
+      - name: Preparar conjunto mínimo do GStreamer
+        shell: bash
+        run: |
+          plugin_dir="$GITHUB_WORKSPACE/.compliance/gstreamer-plugins"
+          bash .github/compliance/prepare-gstreamer-plugins.sh \
+            /usr/lib/x86_64-linux-gnu/gstreamer-1.0 "$plugin_dir" \
+            "$GITHUB_WORKSPACE/.compliance/gstreamer-plugin-licenses.tsv"
+          echo "GSTREAMER_PLUGINS_DIR=$plugin_dir" >> "$GITHUB_ENV"
+
+      - name: Gerar avisos das crates de execução
+        shell: bash
+        working-directory: src-tauri
+        run: |
+          cargo about generate \
+            --locked \
+            --fail \
+            --config ../.github/compliance/about.toml \
+            --output-file ../.compliance/rust-notices.md \
+            ../.github/compliance/rust-notices.hbs
+
+      - name: Preparar primeira passagem
+        run: |
+          npm run build
+          node .github/compliance/audit.mjs bootstrap
+
+      - name: Compilar AppImage para inspeção
+        run: npm run tauri -- build --bundles appimage
+
+      - name: Inspecionar componentes efetivamente distribuídos
+        shell: bash
+        run: |
+          appimage=(src-tauri/target/release/bundle/appimage/*.AppImage)
+          if [[ "${#appimage[@]}" -ne 1 ]]; then
+            echo "Era esperado exatamente um AppImage; encontrados: ${#appimage[@]}" >&2
+            exit 1
+          fi
+          bash .github/compliance/extract-appimage.sh "${appimage[0]}" .compliance/pass1.AppDir
+          syft dir:.compliance/pass1.AppDir \
+            --exclude './usr/share/doc/zyyk-verse/**' \
+            --select-catalogers '-sbom-cataloger' \
+            --source-name zyyk-verse \
+            --source-version "$(node --print "require('./package.json').version")" \
+            --output spdx-json=.compliance/pass1.spdx.json
+          node .github/compliance/audit.mjs generate \
+            --appdir .compliance/pass1.AppDir \
+            --sbom .compliance/pass1.spdx.json \
+            --plugin-policy .compliance/gstreamer-plugin-licenses.tsv \
+            --rust-notices .compliance/rust-notices.md
+
+      - name: Preservar fontes correspondentes copyleft
+        shell: bash
+        run: |
+          version="$(node --print "require('./package.json').version")"
+          bash .github/compliance/collect-copyleft-sources.sh \
+            ".compliance/ZYYK-Verse-${version}-copyleft-sources.tar.gz"
+
+      - name: Reconstruir AppImage com documentação auditada
+        run: npm run tauri -- build --bundles appimage
+
+      - name: Validar AppImage final
+        shell: bash
+        run: |
+          appimage=(src-tauri/target/release/bundle/appimage/*.AppImage)
+          bash .github/compliance/extract-appimage.sh "${appimage[0]}" .compliance/final.AppDir
+          syft dir:.compliance/final.AppDir \
+            --exclude './usr/share/doc/zyyk-verse/**' \
+            --select-catalogers '-sbom-cataloger' \
+            --source-name zyyk-verse \
+            --source-version "$(node --print "require('./package.json').version")" \
+            --output spdx-json=.compliance/final.spdx.json
+          node .github/compliance/audit.mjs validate \
+            --appdir .compliance/final.AppDir \
+            --sbom .compliance/final.spdx.json \
+            --plugin-policy .compliance/gstreamer-plugin-licenses.tsv
+
+      - name: Preparar artefatos da release
+        shell: bash
+        run: |
+          version="$(node --print "require('./package.json').version")"
+          bundle_dir="src-tauri/target/release/bundle/appimage"
+          git archive --format=tar.gz \
+            --prefix "ZYYK-Verse-${version}/" \
+            --output "$bundle_dir/ZYYK-Verse-${version}-source.tar.gz" HEAD
+          cp ".compliance/ZYYK-Verse-${version}-copyleft-sources.tar.gz" "$bundle_dir/"
+          cp .compliance/THIRD_PARTY_NOTICES.md "$bundle_dir/"
+          cp .compliance/SOURCE_OFFER.md "$bundle_dir/"
+          cp .compliance/SBOM.spdx.json "$bundle_dir/"
+          cp .compliance/AUDIT_REPORT.md "$bundle_dir/"
+          cd "$bundle_dir"
+          sha256sum -- *.AppImage *.md *.json *.tar.gz > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Publicar artefato do workflow
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: zyyk-verse-linux-x86_64
+          path: |
+            src-tauri/target/release/bundle/appimage/*.AppImage
+            src-tauri/target/release/bundle/appimage/*.md
+            src-tauri/target/release/bundle/appimage/*.json
+            src-tauri/target/release/bundle/appimage/*.tar.gz
+            src-tauri/target/release/bundle/appimage/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 14
+
+  publish-release:
+    name: Publicar release
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build-appimage
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+
+    steps:
+      - name: Baixar artefatos validados
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.0
+        with:
+          name: zyyk-verse-linux-x86_64
+          path: release-assets
+
+      - name: Validar checksums
+        working-directory: release-assets
+        run: sha256sum --check SHA256SUMS
+
+      - name: Criar GitHub Release imutável
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "A release $GITHUB_REF_NAME já existe; recusando substituir artefatos publicados." >&2
+            exit 1
+          fi
+          assets=(release-assets/*)
+          gh release create "$GITHUB_REF_NAME" "${assets[@]}" \
+            --verify-tag \
+            --generate-notes \
+            --title "ZYYK Verse ${GITHUB_REF_NAME#v}"

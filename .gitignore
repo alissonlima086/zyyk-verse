@@ -1,0 +1,29 @@
+# Dependências
+node_modules/
+
+# Saídas geradas
+.svelte-kit/
+build/
+dist-appimage/
+src-tauri/target/
+*.AppImage
+.compliance/
+
+# Materiais auxiliares locais
+extra/
+.agents/
+.codex/
+
+# Ambiente e editor
+.direnv/
+.env
+.env.*
+!.env.example
+.idea/
+.vscode/
+
+# Arquivos temporários do sistema
+*.log
+*.tmp
+.DS_Store
+Thumbs.db

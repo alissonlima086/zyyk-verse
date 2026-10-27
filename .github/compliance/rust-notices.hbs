@@ -1,0 +1,18 @@
+## Crates Rust incorporadas ao executável
+
+O inventário abaixo é gerado por `cargo-about` para o alvo Linux de distribuição.
+Dependências exclusivamente de desenvolvimento e build são excluídas.
+
+{{#each licenses}}
+### {{name}} (`{{id}}`)
+
+Componentes:
+{{#each used_by}}
+- `{{crate.name}} {{crate.version}}`{{#if crate.repository}} — {{crate.repository}}{{/if}}
+{{/each}}
+
+```text
+{{text}}
+```
+
+{{/each}}

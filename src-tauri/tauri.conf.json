@@ -1,0 +1,47 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "ZYYK Verse",
+  "version": "0.1.0",
+  "identifier": "com.zyyk.verse",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1422",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../build"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "ZYYK Verse",
+        "width": 1366,
+        "height": 820,
+        "minWidth": 1024,
+        "minHeight": 640
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self' ipc: http://ipc.localhost; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost;",
+      "assetProtocol": { "enable": false }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["appimage"],
+    "category": "Music",
+    "shortDescription": "Editor de letras, tradução e sincronização musical",
+    "icon": ["icons/icon.png"],
+    "linux": {
+      "appimage": {
+        "bundleMediaFramework": true,
+        "files": {
+          "/usr/share/doc/zyyk-verse/LICENSE": "../LICENSE",
+          "/usr/share/doc/zyyk-verse/THIRD_PARTY_NOTICES.md": "../.compliance/THIRD_PARTY_NOTICES.md",
+          "/usr/share/doc/zyyk-verse/SOURCE_OFFER.md": "../.compliance/SOURCE_OFFER.md",
+          "/usr/share/doc/zyyk-verse/SBOM.spdx.json": "../.compliance/SBOM.spdx.json",
+          "/usr/share/doc/zyyk-verse/AUDIT_REPORT.md": "../.compliance/AUDIT_REPORT.md"
+        }
+      }
+    }
+  }
+}

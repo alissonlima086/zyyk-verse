@@ -1,0 +1,29 @@
+{
+  "format": "zyyk-verse-project",
+  "version": 1,
+  "revision": 3,
+  "metadata": {
+    "id": "5bd305da-1d91-49b7-9a72-7cdf1dfc7e65",
+    "title": "Contract fixture",
+    "artist": "",
+    "album": "",
+    "createdAt": "2026-10-26T00:00:00Z",
+    "updatedAt": "2026-10-26T00:00:00Z"
+  },
+  "languages": { "source": "en", "target": "pt-BR" },
+  "sourceSegments": [
+    { "id": "d803bfc4-c1cb-487e-8636-13abbbbf9b08", "kind": "line", "text": "First line", "label": null }
+  ],
+  "translations": [
+    { "id": "82b46cba-e917-43c2-8b29-0d7d7583fdf1", "lineIds": ["40bce045-39eb-49fb-82f4-74e07df40c8c"], "variants": [], "selectedVariantId": null, "status": "pending", "notes": "" }
+  ],
+  "alignmentGroups": [
+    {
+      "id": "88a552a2-1d8e-45dc-8364-8a809361de3a",
+      "sourceSegmentIds": ["d803bfc4-c1cb-487e-8636-13abbbbf9b08"],
+      "translationUnitIds": ["82b46cba-e917-43c2-8b29-0d7d7583fdf1"]
+    }
+  ],
+  "audio": null,
+  "syncTracks": []
+}

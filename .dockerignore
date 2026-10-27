@@ -1,0 +1,12 @@
+.git
+.agents
+.codex
+Dockerfile.appimage
+.nix
+.svelte-kit
+.compliance
+build
+dist-appimage
+extra
+node_modules
+src-tauri/target
