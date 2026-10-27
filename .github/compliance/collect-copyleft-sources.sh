@@ -21,8 +21,10 @@ done
 unavailable_native_sources=()
 while IFS=$'\t' read -r source_package source_version; do
   [[ -n "$source_package" ]] || continue
-  if ! apt-cache --only-source showsrc "$source_package" 2>/dev/null \
-    | awk -v expected="$source_version" '$1 == "Version:" && $2 == expected { found = 1 } END { exit !found }'; then
+  # Use o mesmo resolvedor do download real. --print-uris valida a versão e
+  # mostra os objetos que seriam obtidos sem transferi-los para o runner.
+  if ! apt-get source --download-only --print-uris \
+    "${source_package}=${source_version}" >/dev/null 2>&1; then
     unavailable_native_sources+=("${source_package}=${source_version}")
   fi
 done < "$native_manifest"

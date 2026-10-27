@@ -69,16 +69,23 @@ jobs:
           sed -n 's/^deb /deb-src /p' /etc/apt/sources.list | sudo tee /etc/apt/sources.list.d/zyyk-deb-src.list >/dev/null
 
       - name: Instalar dependências do sistema
+        env:
+          DEBIAN_FRONTEND: noninteractive
         run: |
           sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends \
+          # A imagem hospedada pode conter revisões que já saíram dos índices
+          # jammy-updates. Alinhe os pacotes sem remover componentes do runner,
+          # garantindo que o fonte exato continue resolvível mais adiante.
+          sudo --preserve-env=DEBIAN_FRONTEND apt-get upgrade \
+            --yes --with-new-pkgs --no-install-recommends \
+            -o APT::Get::Always-Include-Phased-Updates=true
+          sudo --preserve-env=DEBIAN_FRONTEND apt-get install \
+            --yes --no-install-recommends \
+            -o APT::Get::Always-Include-Phased-Updates=true \
             libwebkit2gtk-4.1-dev \
             libappindicator3-dev \
             librsvg2-dev \
             libssl-dev \
-            systemd \
-            libsystemd0 \
-            libudev1 \
             patchelf \
             pkg-config \
             squashfs-tools \
@@ -163,6 +170,7 @@ jobs:
       - name: Inspecionar componentes efetivamente distribuídos
         shell: bash
         run: |
+          shopt -s nullglob
           appimage=(src-tauri/target/release/bundle/appimage/*.AppImage)
           if [[ "${#appimage[@]}" -ne 1 ]]; then
             echo "Era esperado exatamente um AppImage; encontrados: ${#appimage[@]}" >&2
@@ -195,7 +203,12 @@ jobs:
       - name: Validar AppImage final
         shell: bash
         run: |
+          shopt -s nullglob
           appimage=(src-tauri/target/release/bundle/appimage/*.AppImage)
+          if [[ "${#appimage[@]}" -ne 1 ]]; then
+            echo "Era esperado exatamente um AppImage final; encontrados: ${#appimage[@]}" >&2
+            exit 1
+          fi
           bash .github/compliance/extract-appimage.sh "${appimage[0]}" .compliance/final.AppDir
           syft dir:.compliance/final.AppDir \
             --exclude './usr/share/doc/zyyk-verse/**' \
