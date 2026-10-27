@@ -102,7 +102,10 @@ function queryNativePackage(documentPath) {
 
 function nativePackages(appdir) {
   const docRoot = join(appdir, 'usr/share/doc');
-  const copyrightFiles = walk(docRoot).filter((path) => basename(path) === 'copyright' && !path.includes('/zyyk-verse/'));
+  const copyrightFiles = walk(docRoot).filter((path) => {
+    const packageDirectory = relative(docRoot, path).split('/')[0];
+    return basename(path) === 'copyright' && packageDirectory !== 'zyyk-verse';
+  });
   if (!copyrightFiles.length) throw new Error('O AppImage não contém avisos copyright das bibliotecas nativas.');
 
   const packages = copyrightFiles.map((path) => {
