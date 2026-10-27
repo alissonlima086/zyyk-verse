@@ -18,6 +18,21 @@ for manifest in "$native_manifest" "$cargo_manifest" "$frontend_manifest"; do
   [[ -f "$manifest" ]] || { echo "Manifesto de fontes ausente: $manifest" >&2; exit 1; }
 done
 
+unavailable_native_sources=()
+while IFS=$'\t' read -r source_package source_version; do
+  [[ -n "$source_package" ]] || continue
+  if ! apt-cache --only-source showsrc "$source_package" 2>/dev/null \
+    | awk -v expected="$source_version" '$1 == "Version:" && $2 == expected { found = 1 } END { exit !found }'; then
+    unavailable_native_sources+=("${source_package}=${source_version}")
+  fi
+done < "$native_manifest"
+
+if [[ "${#unavailable_native_sources[@]}" -gt 0 ]]; then
+  printf 'Fontes Ubuntu exatas indisponíveis nos índices configurados:\n' >&2
+  printf '  - %s\n' "${unavailable_native_sources[@]}" >&2
+  exit 1
+fi
+
 while IFS=$'\t' read -r source_package source_version; do
   [[ -n "$source_package" ]] || continue
   (
