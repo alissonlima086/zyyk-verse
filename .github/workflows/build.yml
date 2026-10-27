@@ -166,6 +166,7 @@ jobs:
             exit 1
           fi
           bash .github/compliance/extract-appimage.sh "${appimage[0]}" .compliance/pass1.AppDir
+          bash .github/compliance/stage-native-copyright.sh .compliance/pass1.AppDir
           syft dir:.compliance/pass1.AppDir \
             --exclude './usr/share/doc/zyyk-verse/**' \
             --select-catalogers '-sbom-cataloger' \
