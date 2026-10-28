@@ -203,8 +203,7 @@ function renderSourceOffer(frontend, native, cargo) {
   const copyleftFrontend = frontend.filter((pkg) => /(?:MPL|GPL|LGPL)/i.test(pkg.license));
   const sources = new Map(native.map((pkg) => [`${pkg.sourceName}\t${pkg.sourceVersion}`, pkg]));
   return `# Código-fonte correspondente\n\n` +
-    `Este documento corresponde ao ZYYK Verse ${version}. O código-fonte do Verse, os arquivos de build e as configurações usados na release são distribuídos no arquivo \`ZYYK-Verse-${version}-source.tar.gz\` anexado à mesma release.\n\n` +
-    `As fontes exatas dos componentes copyleft incorporados são preservadas em \`ZYYK-Verse-${version}-copyleft-sources.tar.gz\`, também anexado à release. O arquivo contém um manifesto e checksums SHA-256 próprios.\n\n` +
+    `Este documento corresponde ao ZYYK Verse ${version}. O código-fonte do Verse, os arquivos de build, as configurações da release e as fontes exatas dos componentes copyleft incorporados são distribuídos no arquivo \`ZYYK-Verse-${version}-source.tar.gz\` anexado à mesma release. O arquivo contém manifestos e checksums SHA-256 próprios.\n\n` +
     `## Crates Rust incorporadas\n\nAs fontes exatas podem ser obtidas pelo Cargo a partir do \`src-tauri/Cargo.lock\` incluído no arquivo-fonte. Componentes: ${cargo.map((pkg) => `${pkg.name} ${pkg.version}`).join(', ')}.\n\n` +
     `## Código JavaScript copyleft\n\n${copyleftFrontend.length ? copyleftFrontend.map((pkg) => `- ${pkg.name} ${pkg.version} (${pkg.license}): \`npm pack ${pkg.name}@${pkg.version}\`.`).join('\n') : 'Nenhum componente JavaScript copyleft foi identificado no bundle.'}\n\n` +
     `## Bibliotecas nativas\n\nAs bibliotecas compartilhadas permanecem separadas dentro do AppImage. Os pacotes-fonte exatos usados pelo ambiente Ubuntu 22.04 são:\n\n` +

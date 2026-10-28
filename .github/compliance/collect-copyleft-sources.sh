@@ -1,15 +1,20 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-OUTPUT_ARCHIVE="${1:?Informe o caminho do arquivo de fontes copyleft}"
+OUTPUT_ARCHIVE="${1:?Informe o caminho do arquivo de código-fonte correspondente}"
 COMPLIANCE_DIR="${2:-.compliance}"
 VERSION="$(node --print "require('./package.json').version")"
-ARCHIVE_ROOT="ZYYK-Verse-${VERSION}-copyleft-sources"
+ARCHIVE_ROOT="ZYYK-Verse-${VERSION}-source"
 TEMP_DIR="$(mktemp -d)"
 ROOT_DIR="$TEMP_DIR/$ARCHIVE_ROOT"
 trap 'rm -rf -- "$TEMP_DIR"' EXIT
 
-mkdir -p "$ROOT_DIR/native" "$ROOT_DIR/cargo" "$ROOT_DIR/npm"
+mkdir -p \
+  "$ROOT_DIR/third-party-sources/native" \
+  "$ROOT_DIR/third-party-sources/cargo" \
+  "$ROOT_DIR/third-party-sources/npm" \
+  "$ROOT_DIR/compliance"
+git archive HEAD | tar -x -C "$ROOT_DIR"
 
 native_manifest="$COMPLIANCE_DIR/copyleft-native-sources.tsv"
 cargo_manifest="$COMPLIANCE_DIR/copyleft-cargo-sources.tsv"
@@ -38,7 +43,7 @@ fi
 while IFS=$'\t' read -r source_package source_version; do
   [[ -n "$source_package" ]] || continue
   (
-    cd "$ROOT_DIR/native"
+    cd "$ROOT_DIR/third-party-sources/native"
     apt-get source --download-only "${source_package}=${source_version}"
   )
 done < "$native_manifest"
@@ -46,7 +51,7 @@ done < "$native_manifest"
 while IFS=$'\t' read -r name version source_path license; do
   [[ -n "$name" ]] || continue
   [[ -d "$source_path" ]] || { echo "Fonte Cargo ausente: $name $version ($source_path)" >&2; exit 1; }
-  target="$ROOT_DIR/cargo/${name}-${version}"
+  target="$ROOT_DIR/third-party-sources/cargo/${name}-${version}"
   [[ ! -e "$target" ]] || { echo "Fonte Cargo duplicada: $name $version" >&2; exit 1; }
   cp -a -- "$source_path" "$target"
 done < "$cargo_manifest"
@@ -54,24 +59,27 @@ done < "$cargo_manifest"
 while IFS=$'\t' read -r name version license; do
   [[ -n "$name" ]] || continue
   (
-    cd "$ROOT_DIR/npm"
+    cd "$ROOT_DIR/third-party-sources/npm"
     npm pack --ignore-scripts "${name}@${version}" >/dev/null
   )
 done < "$frontend_manifest"
 
-cp "$native_manifest" "$ROOT_DIR/native-sources.tsv"
-cp "$cargo_manifest" "$ROOT_DIR/cargo-sources.tsv"
-cp "$frontend_manifest" "$ROOT_DIR/frontend-sources.tsv"
+cp "$native_manifest" "$ROOT_DIR/third-party-sources/native-sources.tsv"
+cp "$cargo_manifest" "$ROOT_DIR/third-party-sources/cargo-sources.tsv"
+cp "$frontend_manifest" "$ROOT_DIR/third-party-sources/frontend-sources.tsv"
+cp "$COMPLIANCE_DIR/THIRD_PARTY_NOTICES.md" "$ROOT_DIR/compliance/"
+cp "$COMPLIANCE_DIR/SOURCE_OFFER.md" "$ROOT_DIR/compliance/"
+cp "$COMPLIANCE_DIR/SBOM.spdx.json" "$ROOT_DIR/compliance/"
+cp "$COMPLIANCE_DIR/AUDIT_REPORT.md" "$ROOT_DIR/compliance/"
 
 printf '%s\n' \
-  "Fontes correspondentes copyleft do ZYYK Verse ${VERSION}" \
+  "Código-fonte correspondente do ZYYK Verse ${VERSION}" \
   '' \
-  'Este arquivo foi gerado a partir dos componentes efetivamente encontrados no' \
-  'AppImage. O diretório native contém os arquivos-fonte Debian/Ubuntu exatos; o' \
-  'diretório cargo contém as fontes exatas das crates copyleft incorporadas; e o' \
-  'diretório npm contém pacotes copyleft presentes no bundle, quando aplicável.' \
+  'A raiz contém o código do Verse e seus arquivos de build. O diretório' \
+  'third-party-sources contém as fontes correspondentes dos componentes copyleft' \
+  'efetivamente encontrados no AppImage, separadas em native, cargo e npm.' \
   '' \
-  'Consulte SOURCE_OFFER.md e THIRD_PARTY_NOTICES.md na mesma release.' \
+  'Avisos, SBOM, oferta de fontes e relatório de auditoria estão em compliance/.' \
   > "$ROOT_DIR/README.txt"
 
 (
@@ -83,4 +91,4 @@ mkdir -p "$(dirname "$OUTPUT_ARCHIVE")"
 tar --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner \
   -czf "$OUTPUT_ARCHIVE" -C "$TEMP_DIR" "$ARCHIVE_ROOT"
 test -s "$OUTPUT_ARCHIVE"
-echo "Fontes copyleft preservadas em: $OUTPUT_ARCHIVE"
+echo "Código-fonte correspondente preservado em: $OUTPUT_ARCHIVE"

@@ -190,12 +190,12 @@ jobs:
             --plugin-policy .compliance/gstreamer-plugin-licenses.tsv \
             --rust-notices .compliance/rust-notices.md
 
-      - name: Preservar fontes correspondentes copyleft
+      - name: Preservar código-fonte correspondente
         shell: bash
         run: |
           version="$(node --print "require('./package.json').version")"
           bash .github/compliance/collect-copyleft-sources.sh \
-            ".compliance/ZYYK-Verse-${version}-copyleft-sources.tar.gz"
+            ".compliance/ZYYK-Verse-${version}-source.tar.gz"
 
       - name: Reconstruir AppImage com documentação auditada
         run: npm run tauri -- build --bundles appimage
@@ -226,10 +226,7 @@ jobs:
         run: |
           version="$(node --print "require('./package.json').version")"
           bundle_dir="src-tauri/target/release/bundle/appimage"
-          git archive --format=tar.gz \
-            --prefix "ZYYK-Verse-${version}/" \
-            --output "$bundle_dir/ZYYK-Verse-${version}-source.tar.gz" HEAD
-          cp ".compliance/ZYYK-Verse-${version}-copyleft-sources.tar.gz" "$bundle_dir/"
+          cp ".compliance/ZYYK-Verse-${version}-source.tar.gz" "$bundle_dir/"
           cp .compliance/THIRD_PARTY_NOTICES.md "$bundle_dir/"
           cp .compliance/SOURCE_OFFER.md "$bundle_dir/"
           cp .compliance/SBOM.spdx.json "$bundle_dir/"
@@ -280,8 +277,14 @@ jobs:
             echo "A release $GITHUB_REF_NAME já existe; recusando substituir artefatos publicados." >&2
             exit 1
           fi
-          assets=(release-assets/*)
-          gh release create "$GITHUB_REF_NAME" "${assets[@]}" \
+          shopt -s nullglob
+          applications=(release-assets/*.AppImage)
+          sources=(release-assets/ZYYK-Verse-*-source.tar.gz)
+          if [[ "${#applications[@]}" -ne 1 || "${#sources[@]}" -ne 1 ]]; then
+            echo "Esperados um AppImage e um arquivo de código-fonte; encontrados ${#applications[@]} e ${#sources[@]}." >&2
+            exit 1
+          fi
+          gh release create "$GITHUB_REF_NAME" "${applications[0]}" "${sources[0]}" \
             --verify-tag \
             --generate-notes \
             --title "ZYYK Verse ${GITHUB_REF_NAME#v}"
