@@ -58,11 +58,38 @@ jobs:
           fi
 
   build-appimage:
-    name: Linux x86_64
+    name: Linux ${{ matrix.label }}
     needs: release-state
     if: needs.release-state.outputs.should-build == 'true'
-    runs-on: ubuntu-22.04
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: x86_64
+            artifact_arch: x86_64
+            runner: ubuntu-22.04
+            rust_target: x86_64-unknown-linux-gnu
+            debian_triplet: x86_64-linux-gnu
+            tool_arch: amd64
+            cargo_audit_target: x86_64-unknown-linux-musl
+            cargo_audit_sha256: 7fb9497f8594b389e5fce5ef9b92db08432996895b2e0c5a0167a69ed445c428
+            syft_sha256: bb65249542db5fedeeb4d3f9b018b75e7264dbfbbb10486f044581a92f90490d
+            release_arch: amd64
+          - label: ARM64
+            artifact_arch: aarch64
+            runner: ubuntu-22.04-arm
+            rust_target: aarch64-unknown-linux-gnu
+            debian_triplet: aarch64-linux-gnu
+            tool_arch: arm64
+            cargo_audit_target: aarch64-unknown-linux-gnu
+            cargo_audit_sha256: c6603814ddaa45e51263dafd31c0ac98808f688d26f7395804f9670b0fd599dd
+            syft_sha256: 929bd163db2d7cd2255d3bcb8967208079813d7b46b0c952f7b794d8e2c7d304
+            release_arch: arm64
+    env:
+      ZYYK_RUST_TARGET: ${{ matrix.rust_target }}
+      ZYYK_RELEASE_ARCH: ${{ matrix.release_arch }}
 
     steps:
       - name: Checkout
@@ -89,10 +116,10 @@ jobs:
             ~/.cargo/git/db
             ~/.cache/tauri
             src-tauri/target
-          key: ${{ runner.os }}-cargo-release-${{ hashFiles('src-tauri/Cargo.lock') }}-about-${{ env.CARGO_ABOUT_VERSION }}
+          key: ${{ runner.os }}-${{ runner.arch }}-cargo-release-${{ hashFiles('src-tauri/Cargo.lock') }}-about-${{ env.CARGO_ABOUT_VERSION }}
           restore-keys: |
-            ${{ runner.os }}-cargo-release-${{ hashFiles('src-tauri/Cargo.lock') }}-
-            ${{ runner.os }}-cargo-
+            ${{ runner.os }}-${{ runner.arch }}-cargo-release-${{ hashFiles('src-tauri/Cargo.lock') }}-
+            ${{ runner.os }}-${{ runner.arch }}-cargo-
 
       - name: Habilitar repositórios de código-fonte do Ubuntu
         shell: bash
@@ -133,18 +160,19 @@ jobs:
             cargo install --locked --version "$CARGO_ABOUT_VERSION" --features cli cargo-about
           fi
           curl --fail --location --silent --show-error \
-            "https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/syft_${SYFT_VERSION}_linux_amd64.tar.gz" \
+            "https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/syft_${SYFT_VERSION}_linux_${{ matrix.tool_arch }}.tar.gz" \
             --output /tmp/syft.tar.gz
-          echo "bb65249542db5fedeeb4d3f9b018b75e7264dbfbbb10486f044581a92f90490d  /tmp/syft.tar.gz" | sha256sum --check
+          echo "${{ matrix.syft_sha256 }}  /tmp/syft.tar.gz" | sha256sum --check
           sudo tar -xzf /tmp/syft.tar.gz -C /usr/local/bin syft
+          cargo_audit_archive="cargo-audit-${{ matrix.cargo_audit_target }}-v${CARGO_AUDIT_VERSION}"
           curl --fail --location --silent --show-error \
-            "https://github.com/rustsec/rustsec/releases/download/cargo-audit/v${CARGO_AUDIT_VERSION}/cargo-audit-x86_64-unknown-linux-musl-v${CARGO_AUDIT_VERSION}.tgz" \
+            "https://github.com/rustsec/rustsec/releases/download/cargo-audit/v${CARGO_AUDIT_VERSION}/${cargo_audit_archive}.tgz" \
             --output /tmp/cargo-audit.tar.gz
-          echo "7fb9497f8594b389e5fce5ef9b92db08432996895b2e0c5a0167a69ed445c428  /tmp/cargo-audit.tar.gz" | sha256sum --check
+          echo "${{ matrix.cargo_audit_sha256 }}  /tmp/cargo-audit.tar.gz" | sha256sum --check
           tar -xzf /tmp/cargo-audit.tar.gz -C /tmp \
-            "cargo-audit-x86_64-unknown-linux-musl-v${CARGO_AUDIT_VERSION}/cargo-audit"
+            "${cargo_audit_archive}/cargo-audit"
           sudo install -m 0755 \
-            "/tmp/cargo-audit-x86_64-unknown-linux-musl-v${CARGO_AUDIT_VERSION}/cargo-audit" \
+            "/tmp/${cargo_audit_archive}/cargo-audit" \
             /usr/local/bin/cargo-audit
           cargo about --version
           syft version
@@ -177,7 +205,7 @@ jobs:
         run: |
           plugin_dir="$GITHUB_WORKSPACE/.compliance/gstreamer-plugins"
           bash .github/compliance/prepare-gstreamer-plugins.sh \
-            /usr/lib/x86_64-linux-gnu/gstreamer-1.0 "$plugin_dir" \
+            "/usr/lib/${{ matrix.debian_triplet }}/gstreamer-1.0" "$plugin_dir" \
             "$GITHUB_WORKSPACE/.compliance/gstreamer-plugin-licenses.tsv"
           echo "GSTREAMER_PLUGINS_DIR=$plugin_dir" >> "$GITHUB_ENV"
 
@@ -185,10 +213,13 @@ jobs:
         shell: bash
         working-directory: src-tauri
         run: |
+          mkdir -p ../.compliance
+          sed "s|^targets = .*|targets = [\"${ZYYK_RUST_TARGET}\"]|" \
+            ../.github/compliance/about.toml > ../.compliance/about.toml
           cargo about generate \
             --locked \
             --fail \
-            --config ../.github/compliance/about.toml \
+            --config ../.compliance/about.toml \
             --output-file ../.compliance/rust-notices.md \
             ../.github/compliance/rust-notices.hbs
 
@@ -226,7 +257,7 @@ jobs:
         run: |
           version="$(node --print "require('./package.json').version")"
           bash .github/compliance/collect-copyleft-sources.sh \
-            ".compliance/ZYYK-Verse-${version}-source.tar.gz"
+            ".compliance/ZYYK-Verse-${version}-${ZYYK_RELEASE_ARCH}-source.tar.gz"
 
       - name: Reempacotar AppImage com documentação auditada
         run: npm run tauri -- bundle --bundles appimage --ci
@@ -257,7 +288,7 @@ jobs:
         run: |
           version="$(node --print "require('./package.json').version")"
           bundle_dir="src-tauri/target/release/bundle/appimage"
-          cp ".compliance/ZYYK-Verse-${version}-source.tar.gz" "$bundle_dir/"
+          cp ".compliance/ZYYK-Verse-${version}-${ZYYK_RELEASE_ARCH}-source.tar.gz" "$bundle_dir/"
           cp .compliance/THIRD_PARTY_NOTICES.md "$bundle_dir/"
           cp .compliance/SOURCE_OFFER.md "$bundle_dir/"
           cp .compliance/SBOM.spdx.json "$bundle_dir/"
@@ -269,7 +300,7 @@ jobs:
       - name: Publicar candidato do commit
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: zyyk-verse-linux-x86_64
+          name: zyyk-verse-linux-${{ matrix.artifact_arch }}
           path: |
             src-tauri/target/release/bundle/appimage/*.AppImage
             src-tauri/target/release/bundle/appimage/*.md
