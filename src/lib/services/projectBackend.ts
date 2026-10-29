@@ -96,6 +96,16 @@ export async function loadWaveformCache(projectPath: string, relativePath: strin
   return invoke<number[] | null>('load_waveform_cache', { projectPath, relativePath });
 }
 
+export async function generateProjectWaveform(
+  projectPath: string,
+  relativePath: string,
+  peakCount = 1_400,
+): Promise<number[] | null> {
+  if (!inTauri()) return null;
+  const { invoke } = await import('@tauri-apps/api/core');
+  return invoke<number[]>('generate_waveform', { projectPath, relativePath, peakCount });
+}
+
 export async function saveWaveformCache(projectPath: string, relativePath: string, peaks: number[]): Promise<void> {
   if (!inTauri()) return;
   const { invoke } = await import('@tauri-apps/api/core');
