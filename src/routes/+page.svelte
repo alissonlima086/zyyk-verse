@@ -41,6 +41,7 @@
     saveProject,
   } from '#lib/services/projectBackend.ts';
   import { decodeWaveform } from '#lib/services/waveform.ts';
+  import { normalizeLocale, supportedLocales, translate, type Locale, type TranslationParams } from '#lib/i18n.ts';
   import { insertVaultEntry, moveVaultEntryInTree, removeVaultEntry, renameVaultEntryInTree } from '#lib/domain/vault.ts';
   import {
     createHistoryEntry,
@@ -61,7 +62,9 @@
     VerseProject,
   } from '#lib/types/project.ts';
 
-  let project = $state<VerseProject>(createEmptyProject('Nova música'));
+  let locale = $state<Locale>('pt-BR');
+  const t = (key: Parameters<typeof translate>[1], params?: TranslationParams) => translate(locale, key, params);
+  let project = $state<VerseProject>(createEmptyProject(t('newSong')));
   let filePath = $state<string | null>(null);
   let dirty = $state(false);
   let saving = $state(false);
@@ -69,7 +72,7 @@
   let detailsOpen = $state(false);
   let showImport = $state(false);
   let importText = $state('');
-  let importTitle = $state('Nova música');
+  let importTitle = $state(t('newSong'));
   let importError = $state('');
   let selectedGroupId = $state<string | null>(null);
   let editingKey: string | null = null;
@@ -138,8 +141,8 @@
   const completedCount = $derived(project.translations.filter((unit) => unit.status === 'completed').length);
   const canUndo = $derived(undoStack.length > 0);
   const canRedo = $derived(redoStack.length > 0);
-  const undoLabel = $derived(undoStack.at(-1)?.label ?? 'alteração');
-  const redoLabel = $derived(redoStack.at(-1)?.label ?? 'alteração');
+  const undoLabel = $derived(undoStack.at(-1)?.label ?? t('change'));
+  const redoLabel = $derived(redoStack.at(-1)?.label ?? t('change'));
   const progress = $derived(project.translations.length ? Math.round((completedCount / project.translations.length) * 100) : 0);
   const sourceIndex = $derived.by(() => new Map(project.sourceSegments.map((segment) => [segment.id, segment])));
   const translationIndex = $derived.by(() => new Map(project.translations.map((unit) => [unit.id, unit])));
@@ -345,7 +348,7 @@
   }
 
   function cuePreview(group: AlignmentGroup | null, cue?: SyncCue | null): string {
-    if (!group) return 'Verso sem texto';
+    if (!group) return t('emptyVerse');
     const unit = translationFor(group);
     const lineIndex = unit && cue
       ? (unit.lineIds ?? []).findIndex((id) => cue.targetIds.includes(id))
@@ -358,7 +361,7 @@
       .map((source) => source.text.trim())
       .filter(Boolean)
       .join(' / ');
-    return (translated || original || 'Verso sem texto').replace(/\s+/g, ' ');
+    return (translated || original || t('emptyVerse')).replace(/\s+/g, ' ');
   }
 
   function historyWithCheckpoint(stack: ProjectHistoryEntry[], label: string): ProjectHistoryEntry[] {
@@ -384,13 +387,13 @@
     return true;
   }
 
-  function remember(label = 'alteração') {
+  function remember(label = t('change')) {
     finishEdit();
     undoStack = historyWithCheckpoint(undoStack, label);
     redoStack = [];
   }
 
-  function beginEdit(key: string, label = 'edição de texto') {
+  function beginEdit(key: string, label = t('textEdit')) {
     if (editingKey === key) return;
     finishEdit();
     undoStack = historyWithCheckpoint(undoStack, label);
@@ -401,7 +404,7 @@
 
   function beginTranslationEdit(unit: TranslationUnit, key: string) {
     if (editingKey === key) return;
-    beginEdit(key, 'edição da tradução');
+    beginEdit(key, t('translationEdit'));
     editingTranslationUnit = unit;
   }
 
@@ -482,7 +485,7 @@
   function addTranslationLine(group: AlignmentGroup, afterIndex: number) {
     const unit = translationFor(group);
     if (!unit) return;
-    remember('quebra da tradução');
+    remember(t('translationBreak'));
     const lines = translationLines(unit);
     ensureTranslationLineIds(unit, lines.length);
     lines.splice(afterIndex + 1, 0, '');
@@ -499,7 +502,7 @@
     const lines = translationLines(unit);
     if (!unit || lines.length <= 1) return;
     ensureTranslationLineIds(unit, lines.length);
-    remember('remoção de quebra da tradução');
+    remember(t('translationBreakRemoval'));
     const removedId = unit.lineIds[lineIndex];
     lines.splice(lineIndex, 1);
     unit.lineIds.splice(lineIndex, 1);
@@ -508,9 +511,11 @@
     updateTranslation(unit, lines.join('\n'));
   }
 
-  async function copyLine(text: string, label: string) {
+  async function copyLine(text: string, kind: 'original' | 'translation') {
+    const label = t(kind);
+    const lowerLabel = t(kind === 'original' ? 'originalLower' : 'translationLower');
     if (!text.trim()) {
-      notify(`A ${label.toLowerCase()} está vazia.`);
+      notify(t('emptyCopy', { label: lowerLabel }));
       return;
     }
     try {
@@ -525,9 +530,9 @@
       helper.select();
       const copied = document.execCommand('copy');
       helper.remove();
-      if (!copied) return notify(`Não foi possível copiar a ${label.toLowerCase()}.`);
+      if (!copied) return notify(t('copyFailed', { label: lowerLabel }));
     }
-    notify(`${label} copiada.`);
+    notify(t('copied', { label }));
   }
 
   function syncExactDuplicates(sourceUnit: TranslationUnit) {
@@ -538,23 +543,23 @@
 
   function setStatus(unit: TranslationUnit, target: ProgressStatus) {
     if (target === 'completed' && !selectedVariant(unit)?.text.trim()) {
-      notify('Escreva uma tradução antes de concluir.');
+      notify(t('writeBeforeComplete'));
       return;
     }
-    remember('mudança de estado');
+    remember(t('stateChange'));
     unit.status = target;
     syncExactDuplicates(unit);
     touch();
   }
 
   function statusLabel(status: ProgressStatus): string {
-    if (status === 'completed') return 'Concluído';
-    if (status === 'review') return 'Em revisão';
-    return 'Pendente';
+    if (status === 'completed') return t('completed');
+    if (status === 'review') return t('review');
+    return t('pending');
   }
 
   function addLine(afterGroupId?: string) {
-    remember('adição de verso');
+    remember(t('verseAddition'));
     const source: SourceSegment = { id: newId(), kind: 'line', text: '', label: null };
     const unit = createEmptyTranslation();
     const group: AlignmentGroup = {
@@ -583,8 +588,8 @@
       .map((id) => project.translations.find((unit) => unit.id === id))
       .filter((unit): unit is TranslationUnit => Boolean(unit));
     const hasAuthoredWork = units.some((unit) => unit.variants.some((variant) => variant.text.trim()) || unit.notes.trim());
-    if (hasAuthoredWork && !confirm('Este verso possui tradução ou observações. Excluir o original também removerá esses dados. Continuar?')) return;
-    remember('exclusão de verso');
+    if (hasAuthoredWork && !confirm(t('deleteAuthoredVerseConfirm'))) return;
+    remember(t('verseDeletion'));
     const sourceIds = new Set(group.sourceSegmentIds);
     const translationIds = new Set([
       ...group.translationUnitIds,
@@ -599,16 +604,16 @@
     project.alignmentGroups = project.alignmentGroups.filter((candidate) => candidate.id !== group.id);
     selectedGroupId = project.alignmentGroups.find((candidate) => translationFor(candidate))?.id ?? null;
     touch();
-    notify('Verso removido. Use Ctrl+Z para desfazer.');
+    notify(t('verseRemoved'));
   }
 
   async function confirmImport() {
     importError = '';
     try {
-      if (project.sourceSegments.length && !confirm('Substituir a letra atual? Traduções e alinhamentos existentes serão removidos, mas a ação poderá ser desfeita.')) return;
-      const parsed = await parseLyrics(importText);
-      remember('importação da letra');
-      project.metadata.title = importTitle.trim() || 'Nova música';
+      if (project.sourceSegments.length && !confirm(t('replaceLyricsConfirm'))) return;
+      const parsed = await parseLyrics(importText, t('emptyLyricsError'));
+      remember(t('lyricsImport'));
+      project.metadata.title = importTitle.trim() || t('newSong');
       project.sourceSegments = parsed.sourceSegments;
       project.translations = parsed.translations;
       project.alignmentGroups = parsed.alignmentGroups;
@@ -618,14 +623,14 @@
       importText = '';
       await ensureProjectFile();
       touch();
-      notify(`${parsed.lineCount} versos organizados por linha.`);
+      notify(t('organizedVerses', { count: parsed.lineCount }));
     } catch (error) {
       importError = String(error instanceof Error ? error.message : error);
     }
   }
 
   function addVariant(unit: TranslationUnit) {
-    remember('adição de variante');
+    remember(t('variantAddition'));
     const variant = createVariant();
     unit.variants.push(variant);
     unit.selectedVariantId = variant.id;
@@ -633,14 +638,14 @@
   }
 
   function selectVariant(unit: TranslationUnit, variantId: string) {
-    remember('seleção de variante');
+    remember(t('variantSelection'));
     unit.selectedVariantId = variantId;
     ensureTranslationLineIds(unit);
     touch();
   }
 
   function deleteVariant(unit: TranslationUnit, variantId: string) {
-    remember('exclusão de variante');
+    remember(t('variantDeletion'));
     unit.variants = unit.variants.filter((variant) => variant.id !== variantId);
     if (unit.selectedVariantId === variantId) unit.selectedVariantId = unit.variants[0]?.id ?? null;
     if (!selectedVariant(unit)?.text.trim() && unit.status === 'completed') unit.status = 'review';
@@ -679,10 +684,10 @@
           if (savingVersion === changeVersion && !saveRequested) dirty = false;
           localStorage.setItem('zyykVerse.lastProject', filePath);
         } while (saveRequested || dirty);
-        if (!silent) notify('Projeto salvo.');
+        if (!silent) notify(t('projectSaved'));
         return saved;
       } catch (error) {
-        notify(`Falha ao salvar: ${String(error)}`);
+        notify(t('saveFailed', { error: String(error) }));
         return false;
       } finally {
         saving = false;
@@ -708,7 +713,7 @@
       localStorage.setItem('zyykVerse.lastProject', path);
       await loadProjectAudio();
     } catch (error) {
-      notify(`Falha ao abrir: ${String(error)}`);
+      notify(t('openFailed', { error: String(error) }));
     }
   }
 
@@ -718,7 +723,7 @@
   }
 
   async function selectVault() {
-    const selected = await chooseVaultFolder();
+    const selected = await chooseVaultFolder(t('chooseVaultTitle'));
     if (!selected) return;
     if (dirty && !(await saveCurrent(true))) return;
     vaultPath = selected;
@@ -731,7 +736,7 @@
       revealVaultEntry(firstProject.path);
       await openVaultFile(firstProject.path);
     } else {
-      project = createEmptyProject('Nova música');
+      project = createEmptyProject(t('newSong'));
       filePath = null;
       dirty = false;
       undoStack = [];
@@ -767,7 +772,7 @@
     if (parent !== undefined) selectedFolderPath = parent;
     if (parent && !expandedFolderPaths.includes(parent)) expandedFolderPaths = [...expandedFolderPaths, parent];
     createMode = mode;
-    createName = mode === 'project' ? 'Nova música' : '';
+    createName = mode === 'project' ? t('newSong') : '';
     newMenuOpen = false;
     requestAnimationFrame(() => document.querySelector<HTMLInputElement>('.vault-create-input input')?.select());
   }
@@ -854,9 +859,9 @@
       expandedFolderPaths = expandedFolderPaths.map((path) => rewrite(path) ?? path);
       if (filePath) localStorage.setItem('zyykVerse.lastProject', filePath);
       vaultEntries = renameVaultEntryInTree(vaultEntries, entry.path, renamedPath, name);
-      notify(entry.kind === 'folder' ? 'Pasta renomeada.' : 'Projeto renomeado.');
+      notify(entry.kind === 'folder' ? t('folderRenamed') : t('projectRenamed'));
     } catch (error) {
-      notify(`Não foi possível renomear: ${String(error)}`);
+      notify(t('renameFailed', { error: String(error) }));
     }
   }
 
@@ -891,8 +896,8 @@
     if (!vaultPath) return;
     contextMenu = null;
     const message = entry.kind === 'folder'
-      ? `Excluir a pasta “${entry.name}” e todo o conteúdo dentro dela? Esta ação não pode ser desfeita.`
-      : `Excluir o projeto “${entry.name}” e seus recursos de áudio? Esta ação não pode ser desfeita.`;
+      ? t('deleteFolderConfirm', { name: entry.name })
+      : t('deleteProjectConfirm', { name: entry.name });
     if (!confirm(message)) return;
     try {
       await deleteVaultEntry(vaultPath, entry.path);
@@ -900,7 +905,7 @@
       if (activeWasDeleted) {
         if (autosaveTimer) clearTimeout(autosaveTimer);
         autosaveTimer = null;
-        project = createEmptyProject('Nova música');
+        project = createEmptyProject(t('newSong'));
         filePath = null;
         dirty = false;
         selectedGroupId = null;
@@ -913,9 +918,9 @@
       }
       if (selectedFolderPath === entry.path || selectedFolderPath?.startsWith(`${entry.path}/`)) selectedFolderPath = null;
       vaultEntries = removeVaultEntry(vaultEntries, entry.path);
-      notify(entry.kind === 'folder' ? 'Pasta excluída.' : 'Projeto excluído.');
+      notify(entry.kind === 'folder' ? t('folderDeleted') : t('projectDeleted'));
     } catch (error) {
-      notify(`Não foi possível excluir: ${String(error)}`);
+      notify(t('deleteFailed', { error: String(error) }));
     }
   }
 
@@ -948,17 +953,17 @@
     try {
       audioError = '';
       if (!(await ensureProjectFile()) || !filePath) return;
-      const source = sourcePath ?? await chooseAudioFile();
+      const source = sourcePath ?? await chooseAudioFile({ title: t('audioDialogTitle'), filterName: t('audioFilter') });
       if (!source) return;
       const imported = await importProjectAudio(source, filePath, project.metadata.id);
       project.audio = { relativePath: imported.relativePath, originalName: imported.originalName, managed: true };
       resetWaveform();
       audioUrl = await resolveProjectAudio(filePath, imported.relativePath);
       touch();
-      notify(`Áudio adicionado: ${imported.originalName}`);
+      notify(t('audioAdded', { name: imported.originalName }));
     } catch (error) {
       audioError = String(error);
-      notify(`Não foi possível adicionar o áudio: ${audioError}`);
+      notify(t('audioAddFailed', { error: audioError }));
     }
   }
 
@@ -1099,11 +1104,11 @@
     selectedGroupId = group.id;
     const cue = cueForGroup(group, syncRole);
     if (!cue) {
-      notify('Esta linha ainda não foi adicionada à timeline.');
+      notify(t('lineNotOnTimeline'));
       return;
     }
     if (!audioElement || !audioDuration) {
-      notify('O áudio ainda não está pronto para navegar.');
+      notify(t('audioNotReady'));
       return;
     }
     // Alterar currentTime mantém o estado atual do player: se estiver tocando,
@@ -1203,8 +1208,8 @@
   }
 
   function setCueBoundary(group: AlignmentGroup, boundary: 'start' | 'end', translationLineIndex = 0) {
-    if (!audioDuration) return notify('Adicione um áudio antes de marcar o timing.');
-    remember(`ajuste de ${boundary === 'start' ? 'entrada' : 'saída'}`);
+    if (!audioDuration) return notify(t('addAudioBeforeTiming'));
+    remember(t(boundary === 'start' ? 'entryAdjustment' : 'exitAdjustment'));
     const unit = translationFor(group);
     if (unit) ensureTranslationLineIds(unit);
     const cue = ensureCue(group, syncRole, currentTime, translationLineIndex);
@@ -1225,19 +1230,19 @@
   function removeCue(group: AlignmentGroup, translationLineIndex = 0) {
     const cue = cueForTranslationLine(group, translationLineIndex);
     if (!cue) return;
-    remember('remoção de timing');
+    remember(t('timingRemoval'));
     const track = trackFor(syncRole);
     if (track) track.cues = track.cues.filter((candidate) => candidate.id !== cue.id);
     touch();
   }
 
   function addTextAtPlayhead() {
-    if (!audioDuration) return notify('Adicione um áudio antes de inserir textos na timeline.');
+    if (!audioDuration) return notify(t('addAudioBeforeTimelineText'));
     const items = syncGroups().flatMap((group) => {
       const unit = translationFor(group);
       return translationLines(unit).map((_, lineIndex) => ({ group, lineIndex }));
     });
-    if (!items.length) return notify('Importe a letra antes de inserir textos na timeline.');
+    if (!items.length) return notify(t('importBeforeTimelineText'));
     const track = trackFor(syncRole, true) as SyncTrack;
     const context = cueContextAtTime(sortedCues(track.cues), currentTime);
     const anchorGroup = context.current ? groupForCue(context.current) : context.previous ? groupForCue(context.previous) : null;
@@ -1247,7 +1252,7 @@
       : -1;
     const untimed = (item: { group: AlignmentGroup; lineIndex: number }) => !cueForTranslationLine(item.group, item.lineIndex);
     const item = items.slice(anchorIndex + 1).find(untimed) ?? items.find(untimed);
-    if (!item) return notify('Todos os textos já estão na timeline.');
+    if (!item) return notify(t('allTextsOnTimeline'));
     const { group, lineIndex } = item;
     const unit = translationFor(group);
     if (unit) ensureTranslationLineIds(unit);
@@ -1259,9 +1264,9 @@
       1_000_000,
       FRAME_US,
     );
-    if (!range) return notify('Não há espaço livre depois da agulha para adicionar outro texto.');
+    if (!range) return notify(t('noTimelineSpace'));
 
-    remember('adição de texto na timeline');
+    remember(t('timelineTextAddition'));
     track.cues.push({
       id: newId(),
       targetIds: targetIdsFor(group, syncRole, lineIndex),
@@ -1278,7 +1283,7 @@
   function startCueDrag(event: PointerEvent, cue: SyncCue, boundary: 'start' | 'end') {
     event.preventDefault();
     event.stopPropagation();
-    remember(`ajuste do ${boundary === 'start' ? 'início' : 'fim'} do cue`);
+    remember(t(boundary === 'start' ? 'cueStartAdjustment' : 'cueEndAdjustment'));
     draggingCue = { cue, boundary };
   }
 
@@ -1308,7 +1313,7 @@
     if (draggingCue.boundary === 'move') {
       if (!draggingCue.started) {
         if (Math.abs(event.clientX - (draggingCue.pointerStartX ?? event.clientX)) < 3) return;
-        remember('movimento de cue');
+        remember(t('cueMovement'));
         draggingCue.started = true;
       }
       const desiredStartUs = Math.round(position * 1_000_000) - (draggingCue.grabOffsetUs ?? 0);
@@ -1360,18 +1365,23 @@
 
   async function exportCurrentTrack() {
     try {
-      const contents = projectToSrt(project, syncRole);
+      const contents = projectToSrt(project, syncRole, {
+        emptyTrack: t('emptySyncTrack'),
+        invalidCue: t('invalidCue'),
+        missingTranslation: t('missingTranslation'),
+        missingOriginal: t('missingOriginal'),
+      });
       const base = project.metadata.title.trim().replace(/[^\p{L}\p{N}._-]+/gu, '-').replace(/^-|-$/g, '') || 'legenda';
       try {
         const saved = await exportTextFile(`${base}-traducao.srt`, contents);
-        if (saved) notify('SRT exportado com os timings da timeline.');
+        if (saved) notify(t('srtExportedWithTiming'));
       } catch {
         const link = document.createElement('a');
         link.href = URL.createObjectURL(new Blob([contents], { type: 'application/x-subrip;charset=utf-8' }));
         link.download = `${base}.srt`;
         link.click();
         URL.revokeObjectURL(link.href);
-        notify('SRT exportado.');
+        notify(t('srtExported'));
       }
     } catch (error) {
       notify(String(error instanceof Error ? error.message : error));
@@ -1390,7 +1400,14 @@
     localStorage.setItem('zyykVerse.editorZoom', String(editorZoom));
   }
 
+  function setLocale(value: string) {
+    locale = normalizeLocale(value);
+    localStorage.setItem('zyykVerse.locale', locale);
+    document.documentElement.lang = locale;
+  }
+
   onMount(() => {
+    setLocale(localStorage.getItem('zyykVerse.locale') ?? navigator.language);
     const storedEditorZoom = Number(localStorage.getItem('zyykVerse.editorZoom'));
     if (Number.isFinite(storedEditorZoom)) editorZoom = Math.max(1, Math.min(1.4, storedEditorZoom));
     const handleKeydown = (event: KeyboardEvent) => {
@@ -1484,12 +1501,12 @@
   function handleAudioError(event: Event) {
     const media = event.currentTarget as HTMLAudioElement;
     const messages: Record<number, string> = {
-      1: 'A reprodução foi interrompida.',
-      2: 'O WebKit não conseguiu ler o arquivo de áudio.',
-      3: 'O WebKit não conseguiu decodificar este áudio.',
-      4: 'Formato ou URL de áudio não suportado pelo WebKit.',
+      1: t('audioInterrupted'),
+      2: t('audioReadFailed'),
+      3: t('audioDecodeFailed'),
+      4: t('audioUnsupported'),
     };
-    audioError = messages[media.error?.code ?? 0] ?? 'Falha desconhecida ao carregar o áudio.';
+    audioError = messages[media.error?.code ?? 0] ?? t('audioUnknownFailure');
   }
 </script>
 
@@ -1498,37 +1515,43 @@
 <main class="app-shell" class:vault-closed={!vaultOpen} class:details-open={detailsOpen}>
   <header class="topbar">
     <div class="brand">
-      <button class="icon-button" onclick={() => vaultOpen = !vaultOpen} aria-label="Mostrar ou ocultar vault" title="Mostrar ou ocultar vault">☰</button>
+      <button class="icon-button" onclick={() => vaultOpen = !vaultOpen} aria-label={t('toggleVault')} title={t('toggleVault')}>☰</button>
       <strong>ZYYK VERSE</strong>
     </div>
     <div class="top-actions">
-      <div class="history-actions" aria-label="Histórico de alterações">
-        <button onclick={undo} disabled={!canUndo} aria-label={`Desfazer ${undoLabel}`} title={`Desfazer ${undoLabel} (Ctrl+Z)`}>
+      <div class="history-actions" aria-label={t('changeHistory')}>
+        <button onclick={undo} disabled={!canUndo} aria-label={t('undo', { label: undoLabel })} title={t('undoTitle', { label: undoLabel })}>
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7 4 12l5 5M5 12h8a6 6 0 0 1 6 6" /></svg>
         </button>
-        <button onclick={redo} disabled={!canRedo} aria-label={`Refazer ${redoLabel}`} title={`Refazer ${redoLabel} (Ctrl+Shift+Z / Ctrl+Y)`}>
+        <button onclick={redo} disabled={!canRedo} aria-label={t('redo', { label: redoLabel })} title={t('redoTitle', { label: redoLabel })}>
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 7 5 5-5 5m4-5h-8a6 6 0 0 0-6 6" /></svg>
         </button>
       </div>
-      <span class:dirty class="save-state"><i></i>{saving ? 'Salvando…' : dirty ? 'Alterações' : 'Salvo'}</span>
-      <button class="button quiet" class:active={detailsOpen} onclick={() => detailsOpen = !detailsOpen}>Detalhes</button>
-      <button class="button quiet" onclick={() => saveCurrent(false)} disabled={saving}>Salvar agora</button>
+      <span class:dirty class="save-state"><i></i>{saving ? t('saving') : dirty ? t('unsavedChanges') : t('saved')}</span>
+      <label class="locale-select" aria-label={t('interfaceLanguage')} title={t('interfaceLanguage')}>
+        <span aria-hidden="true">文</span>
+        <select value={locale} onchange={(event) => setLocale(event.currentTarget.value)}>
+          {#each supportedLocales as option}<option value={option}>{translate(option, 'languageName')}</option>{/each}
+        </select>
+      </label>
+      <button class="button quiet" class:active={detailsOpen} onclick={() => detailsOpen = !detailsOpen}>{t('details')}</button>
+      <button class="button quiet" onclick={() => saveCurrent(false)} disabled={saving}>{t('saveNow')}</button>
     </div>
   </header>
 
   {#if vaultOpen}
     <aside class="vault-panel">
-      <div class="panel-title"><strong>{vaultPath?.split('/').at(-1) ?? 'Vault'}</strong><div class="vault-create"><button class="icon-button" onclick={() => newMenuOpen = !newMenuOpen} title="Criar na vault" aria-label="Criar arquivo ou pasta">＋</button>{#if newMenuOpen}<div class="vault-new-menu"><button onclick={() => beginCreate('project')}>Novo projeto</button><button onclick={() => beginCreate('folder')}>Nova pasta</button></div>{/if}</div></div>
-      <div class="vault-search"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.25"/><path d="m12.5 12.5 4 4"/></svg><input bind:value={vaultSearch} aria-label="Buscar no vault" placeholder="Buscar" /></div>
-      <nav class="file-tree" class:dragging={vaultDragActive} class:drop-target={vaultDropTarget === vaultPath} aria-label="Arquivos da vault" data-vault-drop={vaultPath ?? undefined} oncontextmenu={(event) => openVaultContextMenu(event, null)}>
-        {#if createMode}<div class="vault-create-input"><input bind:value={createName} placeholder={createMode === 'project' ? 'Nome do projeto' : 'Nome da pasta'} onkeydown={(event) => { if (event.key === 'Enter') void confirmCreate(); if (event.key === 'Escape') createMode = null; }} onblur={() => { if (!createName.trim()) createMode = null; }} /><button onclick={() => createMode = null} aria-label="Cancelar">×</button></div>{/if}
-        {#if flatVaultEntries.length === 0}<p class="vault-empty">A vault está vazia.</p>{/if}
+      <div class="panel-title"><strong>{vaultPath?.split('/').at(-1) ?? 'Vault'}</strong><div class="vault-create"><button class="icon-button" onclick={() => newMenuOpen = !newMenuOpen} title={t('createInVault')} aria-label={t('createFileOrFolder')}>＋</button>{#if newMenuOpen}<div class="vault-new-menu"><button onclick={() => beginCreate('project')}>{t('newProject')}</button><button onclick={() => beginCreate('folder')}>{t('newFolder')}</button></div>{/if}</div></div>
+      <div class="vault-search"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.25"/><path d="m12.5 12.5 4 4"/></svg><input bind:value={vaultSearch} aria-label={t('searchVault')} placeholder={t('search')} /></div>
+      <nav class="file-tree" class:dragging={vaultDragActive} class:drop-target={vaultDropTarget === vaultPath} aria-label={t('vaultFiles')} data-vault-drop={vaultPath ?? undefined} oncontextmenu={(event) => openVaultContextMenu(event, null)}>
+        {#if createMode}<div class="vault-create-input"><input bind:value={createName} placeholder={createMode === 'project' ? t('projectName') : t('folderName')} onkeydown={(event) => { if (event.key === 'Enter') void confirmCreate(); if (event.key === 'Escape') createMode = null; }} onblur={() => { if (!createName.trim()) createMode = null; }} /><button onclick={() => createMode = null} aria-label={t('cancel')}>×</button></div>{/if}
+        {#if flatVaultEntries.length === 0}<p class="vault-empty">{t('emptyVault')}</p>{/if}
         {#each flatVaultEntries as item (item.entry.path)}
           {#if renameTarget?.path === item.entry.path}
             <div class="tree-row vault-rename-row">
               <span class="tree-guides" style={`width:${item.depth * 15}px`}></span>
               <span class="tree-spacer"></span>
-              <input bind:value={renameName} aria-label={`Renomear ${item.entry.name}`} onkeydown={(event) => { if (event.key === 'Enter') void confirmRename(item.entry); if (event.key === 'Escape') cancelRename(); }} onblur={() => void confirmRename(item.entry)} />
+              <input bind:value={renameName} aria-label={t('renameItem', { name: item.entry.name })} onkeydown={(event) => { if (event.key === 'Enter') void confirmRename(item.entry); if (event.key === 'Escape') cancelRename(); }} onblur={() => void confirmRename(item.entry)} />
             </div>
           {:else if item.entry.kind === 'folder'}
             <button class="tree-row folder" class:selected-folder={selectedFolderPath === item.entry.path} class:drop-target={vaultDropTarget === item.entry.path} class:drag-source={draggedVaultPath === item.entry.path && vaultDragActive} data-vault-drop={item.entry.path} aria-expanded={item.expanded} onpointerdown={(event) => beginVaultDrag(event, item.entry.path)} oncontextmenu={(event) => openVaultContextMenu(event, item.entry)} onclick={() => { if (!suppressVaultClick) toggleVaultFolder(item.entry.path); }}><span class="tree-guides" style={`width:${item.depth * 15}px`}></span><span class:expanded={item.expanded} class="folder-chevron">›</span><span class="tree-name">{item.entry.name}</span></button>
@@ -1537,30 +1560,30 @@
           {/if}
         {/each}
       </nav>
-      <button class="vault-action" onclick={selectVault}>Trocar pasta da vault</button>
+      <button class="vault-action" onclick={selectVault}>{t('changeVaultFolder')}</button>
     </aside>
   {/if}
 
   <section class="editor-panel" style={`--editor-zoom:${editorZoom}`}>
     <header class="document-header">
       <div class="title-group">
-        <input bind:value={project.metadata.title} onfocus={() => beginEdit('title', 'edição do título')} onbeforeinput={() => beginEdit('title', 'edição do título')} onblur={endEdit} oninput={touch} aria-label="Título da música" />
+        <input bind:value={project.metadata.title} onfocus={() => beginEdit('title', t('titleEdit'))} onbeforeinput={() => beginEdit('title', t('titleEdit'))} onblur={endEdit} oninput={touch} aria-label={t('songTitle')} />
         {#if project.metadata.artist || project.metadata.album}<span>{[project.metadata.artist, project.metadata.album].filter(Boolean).join(' · ')}</span>{/if}
       </div>
-      <div class="progress"><span>{completedCount} de {project.translations.length} concluídos</span><strong>{progress}%</strong><i><b style:width={`${progress}%`}></b></i></div>
+      <div class="progress"><span>{t('completedProgress', { completed: completedCount, total: project.translations.length })}</span><strong>{progress}%</strong><i><b style:width={`${progress}%`}></b></i></div>
     </header>
 
     {#if project.alignmentGroups.length === 0}
       <div class="empty-state">
         <div class="empty-icon">≡</div>
-        <h1>Comece pela letra original</h1>
-        <p>Cole a letra inteira em um único campo. O Verse separará e alinhará cada linha automaticamente.</p>
-        <button class="button primary" onclick={() => { importTitle = project.metadata.title; showImport = true; }}>Colar letra completa</button>
+        <h1>{t('startWithOriginal')}</h1>
+        <p>{t('emptyStateDescription')}</p>
+        <button class="button primary" onclick={() => { importTitle = project.metadata.title; showImport = true; }}>{t('pasteFullLyrics')}</button>
       </div>
     {:else}
       <div class="column-headings">
-        <div><span>{project.languages.source.toUpperCase()}</span><strong>Original</strong></div>
-        <div><span>{project.languages.target.toUpperCase()}</span><strong>Tradução</strong><label class="editor-zoom-control" title="Ampliar textos e controles do editor">Zoom <input type="range" min="1" max="1.4" step="0.05" value={editorZoom} oninput={(event) => updateEditorZoom(Number(event.currentTarget.value))} aria-label="Zoom da área de edição" /><output>{Math.round(editorZoom * 100)}%</output></label></div>
+        <div><strong>{t('original')}</strong></div>
+        <div><strong>{t('translation')}</strong><label class="editor-zoom-control" title={t('editorZoomTitle')}>{t('zoom')} <input type="range" min="1" max="1.4" step="0.05" value={editorZoom} oninput={(event) => updateEditorZoom(Number(event.currentTarget.value))} aria-label={t('editorZoomLabel')} /><output>{Math.round(editorZoom * 100)}%</output></label></div>
       </div>
       <div class="editor-scroll">
         {#each project.alignmentGroups as group, index (group.id)}
@@ -1568,34 +1591,34 @@
           {@const unit = translationFor(group)}
           {#if index > 0 && (sources[0]?.kind === 'line' || sourceFor(project.alignmentGroups[index - 1].sourceSegmentIds[0])?.kind === 'line')}
             <div class="row-insert">
-              <button onclick={() => addLine(project.alignmentGroups[index - 1].id)} title="Adicionar uma linha aqui" aria-label="Adicionar uma linha original entre estas duas linhas">＋</button>
+              <button onclick={() => addLine(project.alignmentGroups[index - 1].id)} title={t('addLineHere')} aria-label={t('addOriginalBetween')}>＋</button>
             </div>
           {/if}
           {#if sources[0]?.kind === 'section'}
             <div class="section-row">
               <span></span>
-              <input value={sources[0].label ?? ''} placeholder="Seção" onfocus={() => beginEdit(`section-${sources[0].id}`, 'edição da seção')} onbeforeinput={() => beginEdit(`section-${sources[0].id}`, 'edição da seção')} onblur={endEdit} oninput={(event) => { sources[0].label = (event.currentTarget as HTMLInputElement).value; touch(); }} />
+              <input value={sources[0].label ?? ''} placeholder={t('section')} onfocus={() => beginEdit(`section-${sources[0].id}`, t('sectionEdit'))} onbeforeinput={() => beginEdit(`section-${sources[0].id}`, t('sectionEdit'))} onblur={endEdit} oninput={(event) => { sources[0].label = (event.currentTarget as HTMLInputElement).value; touch(); }} />
               <span></span>
-              <button onclick={() => deleteGroup(group)} aria-label="Excluir seção">×</button>
+              <button onclick={() => deleteGroup(group)} aria-label={t('deleteSection')}>×</button>
             </div>
           {:else if unit}
             <article class="lyric-row" class:selected={selectedGroupId === group.id} class:playhead-current={groupForCue(playheadContext.current)?.id === group.id} class:playhead-previous={groupForCue(playheadContext.previous)?.id === group.id} data-status={unit.status} data-group-id={group.id}>
               <div class="line-gutter">
-                <button onclick={(event) => { event.stopPropagation(); seekToGroup(group); }} title="Ir para esta linha na timeline" aria-label={`Ir para a linha ${lineNumber(index)} na timeline`}>{lineNumber(index)}</button>
+                <button onclick={(event) => { event.stopPropagation(); seekToGroup(group); }} title={t('goToTimeline')} aria-label={t('goToLineTimeline', { line: lineNumber(index) })}>{lineNumber(index)}</button>
               </div>
               <div class="original-cell">
                 <div class="original-lines">
                   {#each sources as source (source.id)}
                     <div class="line-text original-text">
-                      <textarea data-source-id={source.id} rows="1" value={source.text} onfocus={(event) => { selectedGroupId = group.id; beginEdit(`source-${source.id}`, 'edição do original'); scheduleTextareaResize(event.currentTarget); }} onbeforeinput={() => beginEdit(`source-${source.id}`, 'edição do original')} onblur={endEdit} oninput={(event) => { updateOriginal(source, event.currentTarget.value); scheduleTextareaResize(event.currentTarget); }} aria-label={`Texto original ${lineNumber(index)}`}></textarea>
-                      <button class="copy-line" onclick={(event) => { event.stopPropagation(); void copyLine(source.text, 'Original'); }} title="Copiar linha original" aria-label={`Copiar original ${lineNumber(index)}`}>⧉</button>
+                      <textarea data-source-id={source.id} rows="1" value={source.text} onfocus={(event) => { selectedGroupId = group.id; beginEdit(`source-${source.id}`, t('originalEdit')); scheduleTextareaResize(event.currentTarget); }} onbeforeinput={() => beginEdit(`source-${source.id}`, t('originalEdit'))} onblur={endEdit} oninput={(event) => { updateOriginal(source, event.currentTarget.value); scheduleTextareaResize(event.currentTarget); }} aria-label={t('originalText', { line: lineNumber(index) })}></textarea>
+                      <button class="copy-line" onclick={(event) => { event.stopPropagation(); void copyLine(source.text, 'original'); }} title={t('copyOriginalLine')} aria-label={t('copyOriginal', { line: lineNumber(index) })}>⧉</button>
                     </div>
                   {/each}
                 </div>
-                <button class="row-delete" onclick={(event) => { event.stopPropagation(); deleteGroup(group); }} title="Excluir verso" aria-label="Excluir verso">×</button>
+                <button class="row-delete" onclick={(event) => { event.stopPropagation(); deleteGroup(group); }} title={t('deleteVerse')} aria-label={t('deleteVerse')}>×</button>
               </div>
               <div class="translation-cell">
-                <button class="add-translation-line" onclick={(event) => { event.stopPropagation(); addTranslationLine(group, translationLines(unit).length - 1); }} title="Adicionar sublinha à tradução" aria-label={`Adicionar sublinha à tradução ${lineNumber(index)}`}>＋</button>
+                <button class="add-translation-line" onclick={(event) => { event.stopPropagation(); addTranslationLine(group, translationLines(unit).length - 1); }} title={t('addTranslationSubline')} aria-label={t('addTranslationSublineFor', { line: lineNumber(index) })}>＋</button>
                 <div class="translation-content">
                   <div class="translation-sublines">
                     {#each translationLines(unit) as translationLine, translationLineIndex}
@@ -1603,60 +1626,60 @@
                       {@const translationLineCue = cueForTranslationLine(group, translationLineIndex)}
                       <div class="translation-subline" class:timed={Boolean(translationLineCue)}>
                         <div class="line-text translation-text">
-                          <textarea data-translation-line-id={translationLineId} rows="1" value={translationLine} placeholder={translationLineIndex === 0 ? 'Escreva uma tradução…' : 'Continue a tradução…'} onfocus={(event) => { selectedGroupId = group.id; beginTranslationEdit(unit, `translation-${unit.id}-${translationLineIndex}`); scheduleTextareaResize(event.currentTarget); }} onbeforeinput={() => beginTranslationEdit(unit, `translation-${unit.id}-${translationLineIndex}`)} onblur={endEdit} onkeydown={(event) => { if (event.key === 'Enter') { event.preventDefault(); addTranslationLine(group, translationLineIndex); } }} oninput={(event) => { const value = event.currentTarget.value.replace(/\r?\n/g, ' '); event.currentTarget.value = value; updateTranslationLine(unit, translationLineIndex, value); scheduleTextareaResize(event.currentTarget); }} aria-label={`Tradução ${lineNumber(index)}, sublinha ${translationLineIndex + 1}`}></textarea>
-                          <button class="copy-line" onclick={(event) => { event.stopPropagation(); void copyLine(translationLine, 'Tradução'); }} title="Copiar sublinha" aria-label={`Copiar sublinha ${translationLineIndex + 1}`}>⧉</button>
+                          <textarea data-translation-line-id={translationLineId} rows="1" value={translationLine} placeholder={translationLineIndex === 0 ? t('writeTranslation') : t('continueTranslation')} onfocus={(event) => { selectedGroupId = group.id; beginTranslationEdit(unit, `translation-${unit.id}-${translationLineIndex}`); scheduleTextareaResize(event.currentTarget); }} onbeforeinput={() => beginTranslationEdit(unit, `translation-${unit.id}-${translationLineIndex}`)} onblur={endEdit} onkeydown={(event) => { if (event.key === 'Enter') { event.preventDefault(); addTranslationLine(group, translationLineIndex); } }} oninput={(event) => { const value = event.currentTarget.value.replace(/\r?\n/g, ' '); event.currentTarget.value = value; updateTranslationLine(unit, translationLineIndex, value); scheduleTextareaResize(event.currentTarget); }} aria-label={t('translationSublineLabel', { line: lineNumber(index), subline: translationLineIndex + 1 })}></textarea>
+                          <button class="copy-line" onclick={(event) => { event.stopPropagation(); void copyLine(translationLine, 'translation'); }} title={t('copySubline')} aria-label={t('copySublineNumber', { number: translationLineIndex + 1 })}>⧉</button>
                         </div>
                         <div class="row-timing" class:timed={Boolean(translationLineCue)}>
-                          {#if translationLineCue}<button class="time-readout" onclick={(event) => { event.stopPropagation(); seekTo(translationLineCue.startUs / 1_000_000); }}>{formatClock(translationLineCue.startUs / 1_000_000, true)} → {formatClock(translationLineCue.endUs / 1_000_000, true)}</button>{:else}<span class="time-placeholder" aria-hidden="true">Sem timing</span>{/if}
+                          {#if translationLineCue}<button class="time-readout" onclick={(event) => { event.stopPropagation(); seekTo(translationLineCue.startUs / 1_000_000); }}>{formatClock(translationLineCue.startUs / 1_000_000, true)} → {formatClock(translationLineCue.endUs / 1_000_000, true)}</button>{:else}<span class="time-placeholder" aria-hidden="true">{t('noTiming')}</span>{/if}
                           <div class="timing-controls">
-                            <button onclick={(event) => { event.stopPropagation(); setCueBoundary(group, 'start', translationLineIndex); }} title="Definir entrada desta sublinha no playhead">In</button>
-                            <button onclick={(event) => { event.stopPropagation(); setCueBoundary(group, 'end', translationLineIndex); }} title="Definir saída desta sublinha no playhead">Out</button>
-                            {#if translationLineCue}<button class="remove-timing" onclick={(event) => { event.stopPropagation(); removeCue(group, translationLineIndex); }} title="Remover timing" aria-label="Remover timing">×</button>{/if}
+                            <button onclick={(event) => { event.stopPropagation(); setCueBoundary(group, 'start', translationLineIndex); }} title={t('setSublineIn')}>{t('inPoint')}</button>
+                            <button onclick={(event) => { event.stopPropagation(); setCueBoundary(group, 'end', translationLineIndex); }} title={t('setSublineOut')}>{t('outPoint')}</button>
+                            {#if translationLineCue}<button class="remove-timing" onclick={(event) => { event.stopPropagation(); removeCue(group, translationLineIndex); }} title={t('removeTiming')} aria-label={t('removeTiming')}>×</button>{/if}
                           </div>
                         </div>
-                        {#if translationLines(unit).length > 1}<button class="remove-translation-line" onclick={(event) => { event.stopPropagation(); deleteTranslationLine(group, translationLineIndex); }} title="Remover esta sublinha" aria-label={`Remover sublinha ${translationLineIndex + 1}`}>×</button>{/if}
-                        <button class="insert-translation-line" onclick={(event) => { event.stopPropagation(); addTranslationLine(group, translationLineIndex); }} title="Adicionar sublinha abaixo" aria-label={`Adicionar sublinha após ${translationLineIndex + 1}`}>＋</button>
+                        {#if translationLines(unit).length > 1}<button class="remove-translation-line" onclick={(event) => { event.stopPropagation(); deleteTranslationLine(group, translationLineIndex); }} title={t('removeSubline')} aria-label={t('removeSublineNumber', { number: translationLineIndex + 1 })}>×</button>{/if}
+                        <button class="insert-translation-line" onclick={(event) => { event.stopPropagation(); addTranslationLine(group, translationLineIndex); }} title={t('addSublineBelow')} aria-label={t('addSublineAfter', { number: translationLineIndex + 1 })}>＋</button>
                       </div>
                     {/each}
                   </div>
                   <div class="row-meta">
-                    <div class="line-state-actions"><button class:active={unit.status === 'review'} onclick={(event) => { event.stopPropagation(); setStatus(unit, unit.status === 'review' ? 'pending' : 'review'); }}>Em revisão</button><button class:active={unit.status === 'completed'} onclick={(event) => { event.stopPropagation(); setStatus(unit, unit.status === 'completed' ? 'pending' : 'completed'); }}>✓ Concluído</button></div>
+                    <div class="line-state-actions"><button class:active={unit.status === 'review'} onclick={(event) => { event.stopPropagation(); setStatus(unit, unit.status === 'review' ? 'pending' : 'review'); }}>{t('review')}</button><button class:active={unit.status === 'completed'} onclick={(event) => { event.stopPropagation(); setStatus(unit, unit.status === 'completed' ? 'pending' : 'completed'); }}>✓ {t('completed')}</button></div>
                   </div>
                 </div>
               </div>
             </article>
           {/if}
         {/each}
-        <div class="add-row"><button onclick={() => addLine(selectedGroupId ?? undefined)}>＋ Adicionar verso</button></div>
+        <div class="add-row"><button onclick={() => addLine(selectedGroupId ?? undefined)}>＋ {t('addVerse')}</button></div>
       </div>
     {/if}
   </section>
 
   {#if detailsOpen}
     <aside class="details-panel">
-      <div class="panel-title"><strong>Detalhes</strong><button class="icon-button" onclick={() => detailsOpen = false} aria-label="Fechar detalhes">×</button></div>
+      <div class="panel-title"><strong>{t('details')}</strong><button class="icon-button" onclick={() => detailsOpen = false} aria-label={t('closeDetails')}>×</button></div>
       {#if selectedUnit && selectedGroup}
         <section>
-          <h2>Original</h2>
+          <h2>{t('original')}</h2>
           <blockquote>{sourcesFor(selectedGroup).map((source) => source.text).join(' / ')}</blockquote>
         </section>
         <section>
-          <div class="section-title"><h2>Variantes</h2><button onclick={() => addVariant(selectedUnit)}>＋ Nova</button></div>
+          <div class="section-title"><h2>{t('variants')}</h2><button onclick={() => addVariant(selectedUnit)}>＋ {t('newFeminine')}</button></div>
           {#if selectedUnit.variants.length === 0}
-            <p class="muted">Nenhuma variante criada.</p>
+            <p class="muted">{t('noVariants')}</p>
           {/if}
           <div class="variant-list">
             {#each selectedUnit.variants as variant, variantIndex (variant.id)}
               <div class="variant" class:selected={variant.id === selectedUnit.selectedVariantId}>
                 <button class="variant-select" onclick={() => selectVariant(selectedUnit, variant.id)}>{String.fromCharCode(65 + variantIndex)}</button>
-                <textarea rows="3" bind:value={variant.text} onfocus={() => beginEdit(`variant-${variant.id}`, 'edição de variante')} onbeforeinput={() => beginEdit(`variant-${variant.id}`, 'edição de variante')} onblur={endEdit} oninput={() => { variant.updatedAt = new Date().toISOString(); if (variant.id === selectedUnit.selectedVariantId) ensureTranslationLineIds(selectedUnit); touch(); }} aria-label={`Variante ${variantIndex + 1}`}></textarea>
-                <button class="variant-delete" onclick={() => deleteVariant(selectedUnit, variant.id)} aria-label="Excluir variante">×</button>
+                <textarea rows="3" bind:value={variant.text} onfocus={() => beginEdit(`variant-${variant.id}`, t('variantEdit'))} onbeforeinput={() => beginEdit(`variant-${variant.id}`, t('variantEdit'))} onblur={endEdit} oninput={() => { variant.updatedAt = new Date().toISOString(); if (variant.id === selectedUnit.selectedVariantId) ensureTranslationLineIds(selectedUnit); touch(); }} aria-label={t('variantNumber', { number: variantIndex + 1 })}></textarea>
+                <button class="variant-delete" onclick={() => deleteVariant(selectedUnit, variant.id)} aria-label={t('deleteVariant')}>×</button>
               </div>
             {/each}
           </div>
         </section>
         <section>
-          <h2>Estado</h2>
+          <h2>{t('state')}</h2>
           <div class="status-options">
             {#each ['pending', 'review', 'completed'] as status}
               <button class:active={selectedUnit.status === status} onclick={() => { if (selectedUnit.status !== status) setStatus(selectedUnit, status as ProgressStatus); }}>{statusLabel(status as ProgressStatus)}</button>
@@ -1664,48 +1687,48 @@
           </div>
         </section>
         <section>
-          <h2>Observações</h2>
-          <textarea class="notes" rows="6" bind:value={selectedUnit.notes} onfocus={() => beginEdit(`notes-${selectedUnit.id}`, 'edição das observações')} onbeforeinput={() => beginEdit(`notes-${selectedUnit.id}`, 'edição das observações')} onblur={endEdit} oninput={touch} placeholder="Sentido, contexto ou escolhas linguísticas…"></textarea>
+          <h2>{t('notes')}</h2>
+          <textarea class="notes" rows="6" bind:value={selectedUnit.notes} onfocus={() => beginEdit(`notes-${selectedUnit.id}`, t('notesEdit'))} onbeforeinput={() => beginEdit(`notes-${selectedUnit.id}`, t('notesEdit'))} onblur={endEdit} oninput={touch} placeholder={t('notesPlaceholder')}></textarea>
         </section>
       {:else}
-        <div class="details-empty">Selecione um verso.</div>
+        <div class="details-empty">{t('selectVerse')}</div>
       {/if}
     </aside>
   {/if}
 
   <footer class="timeline-panel">
     <div class="transport-bar">
-      <div class="audio-identity"><span>♫</span><strong>{project.audio?.originalName ?? 'Nenhum áudio carregado'}</strong></div>
-      <button class="transport-play" onclick={togglePlayback} disabled={!audioUrl} aria-label={audioPlaying ? 'Pausar' : 'Reproduzir'}>{audioPlaying ? '❚❚' : '▶'}</button>
+      <div class="audio-identity"><span>♫</span><strong>{project.audio?.originalName ?? t('noAudio')}</strong></div>
+      <button class="transport-play" onclick={togglePlayback} disabled={!audioUrl} aria-label={audioPlaying ? t('pause') : t('play')}>{audioPlaying ? '❚❚' : '▶'}</button>
       <span class="transport-time">{formatClock(currentTime, true)} <i>/</i> {formatClock(audioDuration, true)}</span>
-      <span class="frame-hint" title="Use as setas esquerda e direita para avançar um frame">← 1 frame · {TIMELINE_FPS} fps · 1 frame →</span>
-      <button class="add-text-button" onclick={addTextAtPlayhead} disabled={!audioUrl || syncGroups().length === 0}>＋ Adicionar texto</button>
-      <label class="zoom-control">Zoom <input type="range" min="1" max="32" step="0.5" bind:value={timelineZoom} /></label>
-      <button class="button quiet" onclick={exportCurrentTrack} disabled={!activeTrack?.cues.length}>Exportar tradução SRT</button>
-      <button class="button quiet" onclick={() => addAudio()}>Adicionar áudio</button>
+      <span class="frame-hint" title={t('frameHint')}>← 1 {t('frame')} · {TIMELINE_FPS} fps · 1 {t('frame')} →</span>
+      <button class="add-text-button" onclick={addTextAtPlayhead} disabled={!audioUrl || syncGroups().length === 0}>＋ {t('addText')}</button>
+      <label class="zoom-control">{t('zoom')} <input type="range" min="1" max="32" step="0.5" bind:value={timelineZoom} /></label>
+      <button class="button quiet" onclick={exportCurrentTrack} disabled={!activeTrack?.cues.length}>{t('exportTranslationSrt')}</button>
+      <button class="button quiet" onclick={() => addAudio()}>{t('addAudio')}</button>
     </div>
     {#if audioError}<div class="audio-error" title={audioError}>{audioError}</div>{/if}
-    <div class="timeline-scroll" onwheel={handleTimelineWheel} title="Ctrl + scroll: zoom · Shift + scroll: navegar horizontalmente">
-      <div class="timeline-content" bind:this={timelineContent} class:scrubbing={scrubbingPlayhead} style={`width:${timelineZoom * 100}%`} onpointerdown={startTimelineScrub} role="slider" aria-label="Timeline do áudio" aria-valuemin="0" aria-valuemax={audioDuration} aria-valuenow={currentTime} tabindex="0">
+    <div class="timeline-scroll" onwheel={handleTimelineWheel} title={t('timelineWheelHint')}>
+      <div class="timeline-content" bind:this={timelineContent} class:scrubbing={scrubbingPlayhead} style={`width:${timelineZoom * 100}%`} onpointerdown={startTimelineScrub} role="slider" aria-label={t('audioTimeline')} aria-valuemin="0" aria-valuemax={audioDuration} aria-valuenow={currentTime} tabindex="0">
         <div class="timeline-ruler">
           {#each timelineTicks as tick}<span style={`left:${audioDuration ? (tick / audioDuration) * 100 : 0}%`}><i></i>{formatClock(tick)}</span>{/each}
         </div>
         <div class="waveform" class:loading={waveformLoading}>
           {#if waveformPeaks.length}
             <svg viewBox={`0 0 ${waveformPeaks.length - 1} 2`} preserveAspectRatio="none" aria-hidden="true"><path d={waveformPath}></path></svg>
-          {:else}<span>{audioUrl ? (waveformLoading ? 'Gerando waveform…' : waveformPending ? 'Áudio pronto — preparando waveform…' : 'Waveform indisponível — a timeline continua editável') : 'Adicione ou arraste um áudio para começar'}</span>{/if}
+          {:else}<span>{audioUrl ? (waveformLoading ? t('generatingWaveform') : waveformPending ? t('preparingWaveform') : t('waveformUnavailable')) : t('addOrDropAudio')}</span>{/if}
         </div>
         <div class="cue-lane">
           {#each activeTrack?.cues ?? [] as cue (cue.id)}
             {@const cueGroup = groupForCue(cue)}
             <div class="timeline-cue" class:selected={cueGroup?.id === selectedGroupId} style={`left:${audioDuration ? (cue.startUs / 1_000_000 / audioDuration) * 100 : 0}%;width:${audioDuration ? ((cue.endUs - cue.startUs) / 1_000_000 / audioDuration) * 100 : 0}%`} onpointerdown={(event) => startCueMove(event, cue)} onclick={(event) => { event.stopPropagation(); if (cueGroup) selectedGroupId = cueGroup.id; }} onkeydown={(event) => { if ((event.key === 'Enter' || event.key === ' ') && cueGroup) selectedGroupId = cueGroup.id; }} title={`${cuePreview(cueGroup, cue)} · ${formatClock(cue.startUs / 1_000_000, true)} — ${formatClock(cue.endUs / 1_000_000, true)}`} role="button" tabindex="0">
-              <button class="cue-handle start" onpointerdown={(event) => startCueDrag(event, cue, 'start')} aria-label="Ajustar início do cue"></button>
+              <button class="cue-handle start" onpointerdown={(event) => startCueDrag(event, cue, 'start')} aria-label={t('adjustCueStart')}></button>
               <b>{cuePreview(cueGroup, cue)}</b>
-              <button class="cue-handle end" onpointerdown={(event) => startCueDrag(event, cue, 'end')} aria-label="Ajustar fim do cue"></button>
+              <button class="cue-handle end" onpointerdown={(event) => startCueDrag(event, cue, 'end')} aria-label={t('adjustCueEnd')}></button>
             </div>
           {/each}
         </div>
-        {#if snapGuideUs !== null}<div class="snap-guide" style={`left:${audioDuration ? (snapGuideUs / 1_000_000 / audioDuration) * 100 : 0}%`}><span>SNAP</span></div>{/if}
+        {#if snapGuideUs !== null}<div class="snap-guide" style={`left:${audioDuration ? (snapGuideUs / 1_000_000 / audioDuration) * 100 : 0}%`}><span>{t('snap')}</span></div>{/if}
         <div class="playhead" style={`left:${audioDuration ? (currentTime / audioDuration) * 100 : 0}%`}><i></i></div>
       </div>
     </div>
@@ -1716,37 +1739,37 @@
 {#if contextMenu}
   <div class="vault-context-menu" style={`left:${contextMenu.x}px;top:${contextMenu.y}px`} role="menu">
     {#if !contextMenu.entry}
-      <button onclick={() => { contextMenu = null; beginCreate('project', null); }}>Novo projeto</button>
-      <button onclick={() => { contextMenu = null; beginCreate('folder', null); }}>Nova pasta</button>
+      <button onclick={() => { contextMenu = null; beginCreate('project', null); }}>{t('newProject')}</button>
+      <button onclick={() => { contextMenu = null; beginCreate('folder', null); }}>{t('newFolder')}</button>
     {:else if contextMenu.entry.kind === 'folder'}
-      <button onclick={() => { const path = contextMenu?.entry?.path ?? null; contextMenu = null; beginCreate('project', path); }}>Novo projeto aqui</button>
-      <button onclick={() => { const path = contextMenu?.entry?.path ?? null; contextMenu = null; beginCreate('folder', path); }}>Nova pasta aqui</button>
+      <button onclick={() => { const path = contextMenu?.entry?.path ?? null; contextMenu = null; beginCreate('project', path); }}>{t('newProjectHere')}</button>
+      <button onclick={() => { const path = contextMenu?.entry?.path ?? null; contextMenu = null; beginCreate('folder', path); }}>{t('newFolderHere')}</button>
       <i></i>
-      <button onclick={() => { const entry = contextMenu?.entry; if (entry) beginRename(entry); }}>Renomear</button>
+      <button onclick={() => { const entry = contextMenu?.entry; if (entry) beginRename(entry); }}>{t('rename')}</button>
       <i></i>
-      <button class="danger" onclick={() => { const entry = contextMenu?.entry; if (entry) void deleteVaultItem(entry); }}><span>×</span>Excluir pasta</button>
+      <button class="danger" onclick={() => { const entry = contextMenu?.entry; if (entry) void deleteVaultItem(entry); }}><span>×</span>{t('deleteFolder')}</button>
     {:else}
-      <button onclick={() => { const entry = contextMenu?.entry; if (entry) beginRename(entry); }}>Renomear</button>
+      <button onclick={() => { const entry = contextMenu?.entry; if (entry) beginRename(entry); }}>{t('rename')}</button>
       <i></i>
-      <button class="danger" onclick={() => { const entry = contextMenu?.entry; if (entry) void deleteVaultItem(entry); }}><span>×</span>Excluir projeto</button>
+      <button class="danger" onclick={() => { const entry = contextMenu?.entry; if (entry) void deleteVaultItem(entry); }}><span>×</span>{t('deleteProject')}</button>
     {/if}
   </div>
 {/if}
 
-{#if audioDropActive}<div class="audio-drop-overlay"><div><strong>Solte para adicionar o áudio</strong><span>O arquivo será copiado para os recursos deste projeto.</span></div></div>{/if}
+{#if audioDropActive}<div class="audio-drop-overlay"><div><strong>{t('dropAudio')}</strong><span>{t('audioWillBeCopied')}</span></div></div>{/if}
 
 {#if showImport}
   <div class="modal-backdrop" role="presentation" onclick={(event) => { if (event.target === event.currentTarget) showImport = false; }}>
     <div class="import-modal" role="dialog" aria-modal="true" aria-labelledby="import-title" tabindex="-1">
-      <header><div><span>Importar original</span><h1 id="import-title">Cole a letra completa</h1></div><button class="icon-button" onclick={() => showImport = false} aria-label="Fechar">×</button></header>
+      <header><div><span>{t('importOriginal')}</span><h1 id="import-title">{t('pasteCompleteLyrics')}</h1></div><button class="icon-button" onclick={() => showImport = false} aria-label={t('close')}>×</button></header>
       <div class="modal-content">
-        <p>Use uma linha para cada verso. Linhas vazias criam separadores; títulos como <code>[Chorus]</code> criam seções.</p>
-        <label class="project-name-field"><span>Nome do projeto</span><input bind:value={importTitle} placeholder="Nome da música" /></label>
-        <textarea bind:value={importText} placeholder={'[Verse 1]\nFirst line of the song\nSecond line of the song\n\n[Chorus]\n...'}></textarea>
-        <div class="import-summary"><span>{importPreview.lineCount} versos</span><span>{importPreview.sectionCount} seções</span></div>
+        <p>{t('importInstructions')} <code>[Chorus]</code> {t('importInstructionsEnd')}</p>
+        <label class="project-name-field"><span>{t('projectName')}</span><input bind:value={importTitle} placeholder={t('songName')} /></label>
+        <textarea bind:value={importText} placeholder={t('importPlaceholder')}></textarea>
+        <div class="import-summary"><span>{t('verseCount', { count: importPreview.lineCount })}</span><span>{t('sectionCount', { count: importPreview.sectionCount })}</span></div>
         {#if importError}<div class="error-banner">{importError}</div>{/if}
       </div>
-      <footer><button class="button quiet" onclick={() => showImport = false}>Cancelar</button><button class="button primary" onclick={confirmImport} disabled={!importPreview.lineCount || !importTitle.trim()}>Criar e organizar</button></footer>
+      <footer><button class="button quiet" onclick={() => showImport = false}>{t('cancel')}</button><button class="button primary" onclick={confirmImport} disabled={!importPreview.lineCount || !importTitle.trim()}>{t('createAndOrganize')}</button></footer>
     </div>
   </div>
 {/if}
@@ -1755,10 +1778,10 @@
   <div class="modal-backdrop vault-setup-backdrop">
     <div class="vault-setup" role="dialog" aria-modal="true" aria-labelledby="vault-setup-title">
       <div class="empty-icon">▰</div>
-      <span>PRIMEIRO ACESSO</span>
-      <h1 id="vault-setup-title">Escolha a pasta da sua vault</h1>
-      <p>Projetos, pastas e recursos de áudio ficarão organizados nesse local. O Verse lembrará sua escolha nas próximas vezes.</p>
-      <button class="button primary" onclick={selectVault}>Escolher pasta</button>
+      <span>{t('firstAccess')}</span>
+      <h1 id="vault-setup-title">{t('chooseVaultTitle')}</h1>
+      <p>{t('vaultSetupDescription')}</p>
+      <button class="button primary" onclick={selectVault}>{t('chooseFolder')}</button>
     </div>
   </div>
 {/if}

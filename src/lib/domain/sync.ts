@@ -189,19 +189,35 @@ export function cueText(project: VerseProject, cue: SyncCue, role: SyncRole): st
     .join('\n');
 }
 
-export function projectToSrt(project: VerseProject, role: SyncRole): string {
+export interface SrtValidationMessages {
+  emptyTrack: string;
+  invalidCue: string;
+  missingTranslation: string;
+  missingOriginal: string;
+}
+
+const defaultSrtValidationMessages: SrtValidationMessages = {
+  emptyTrack: 'A trilha ainda não possui versos sincronizados.',
+  invalidCue: 'Há um cue com duração inválida. Ajuste seus limites antes de exportar.',
+  missingTranslation: 'Há um verso sincronizado sem tradução selecionada.',
+  missingOriginal: 'Há um verso sincronizado sem texto original.',
+};
+
+export function projectToSrt(
+  project: VerseProject,
+  role: SyncRole,
+  messages: SrtValidationMessages = defaultSrtValidationMessages,
+): string {
   const track = project.syncTracks.find((candidate) => candidate.role === role);
-  if (!track?.cues.length) throw new Error('A trilha ainda não possui versos sincronizados.');
+  if (!track?.cues.length) throw new Error(messages.emptyTrack);
   if (track.cues.some((cue) => cue.endUs <= cue.startUs)) {
-    throw new Error('Há um cue com duração inválida. Ajuste seus limites antes de exportar.');
+    throw new Error(messages.invalidCue);
   }
   const entries = [...track.cues]
     .sort((a, b) => a.startUs - b.startUs || a.endUs - b.endUs)
     .map((cue) => ({ cue, text: cueText(project, cue, role) }));
   if (entries.some((entry) => !entry.text)) {
-    throw new Error(role === 'translation'
-      ? 'Há um verso sincronizado sem tradução selecionada.'
-      : 'Há um verso sincronizado sem texto original.');
+    throw new Error(role === 'translation' ? messages.missingTranslation : messages.missingOriginal);
   }
   return `${entries.map(({ cue, text }, index) => `${index + 1}\n${srtTime(cue.startUs)} --> ${srtTime(cue.endUs)}\n${text}`).join('\n\n')}\n`;
 }

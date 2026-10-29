@@ -5,10 +5,10 @@ function inTauri(): boolean {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 }
 
-export async function parseLyrics(text: string): Promise<ParsedLyrics> {
+export async function parseLyrics(text: string, emptyLyricsError = 'Cole ao menos uma linha de letra.'): Promise<ParsedLyrics> {
   if (!inTauri()) {
     const parsed = parseLyricsLocally(text);
-    if (!parsed.lineCount) throw new Error('Cole ao menos uma linha de letra.');
+    if (!parsed.lineCount) throw new Error(emptyLyricsError);
     return parsed;
   }
   const { invoke } = await import('@tauri-apps/api/core');
@@ -30,10 +30,10 @@ export async function openProject(path: string): Promise<VerseProject> {
   return invoke<VerseProject>('open_project', { path });
 }
 
-export async function chooseVaultFolder(): Promise<string | null> {
+export async function chooseVaultFolder(title = 'Escolha a pasta da sua vault'): Promise<string | null> {
   if (!inTauri()) return null;
   const { open } = await import('@tauri-apps/plugin-dialog');
-  const path = await open({ directory: true, multiple: false, title: 'Escolha a pasta da sua vault' });
+  const path = await open({ directory: true, multiple: false, title });
   return typeof path === 'string' ? path : null;
 }
 
@@ -67,12 +67,15 @@ export async function deleteVaultEntry(root: string, path: string): Promise<void
   await invoke('delete_vault_entry', { root, path });
 }
 
-export async function chooseAudioFile(): Promise<string | null> {
+export async function chooseAudioFile(labels: { title: string; filterName: string } = {
+  title: 'Adicionar áudio ao projeto',
+  filterName: 'Áudio',
+}): Promise<string | null> {
   const { open } = await import('@tauri-apps/plugin-dialog');
   const path = await open({
     multiple: false,
-    title: 'Adicionar áudio ao projeto',
-    filters: [{ name: 'Áudio', extensions: ['mp3', 'flac', 'wav', 'ogg'] }],
+    title: labels.title,
+    filters: [{ name: labels.filterName, extensions: ['mp3', 'flac', 'wav', 'ogg'] }],
   });
   return typeof path === 'string' ? path : null;
 }
