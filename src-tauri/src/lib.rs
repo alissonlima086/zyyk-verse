@@ -8,6 +8,7 @@ mod media_server;
 mod model;
 mod persistence;
 mod vault;
+mod waveform;
 
 use lyrics::ParsedLyrics;
 use model::VerseProject;
@@ -132,9 +133,28 @@ fn resolve_project_audio(
         return Err("O servidor local de áudio não está disponível.".to_owned());
     }
     let mut registry = state.registry.lock().map_err(|error| error.to_string())?;
-    registry.clear();
     registry.insert(token.clone(), canonical);
     Ok(format!("http://127.0.0.1:{}/audio/{token}", state.port))
+}
+
+#[tauri::command]
+async fn generate_waveform(
+    project_path: String,
+    relative_path: String,
+    peak_count: usize,
+) -> Result<Vec<f32>, String> {
+    blocking(move || {
+        let project_path = Path::new(&project_path);
+        let relative_path = Path::new(&relative_path);
+        if let Some(cached) = vault::load_waveform_cache(project_path, relative_path)? {
+            return Ok(cached);
+        }
+        let audio = vault::resolve_audio(project_path, relative_path)?;
+        let peaks = waveform::decode(Path::new(&audio), peak_count)?;
+        vault::save_waveform_cache(project_path, relative_path, &peaks)?;
+        Ok(peaks)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -201,6 +221,7 @@ pub fn run() {
             delete_vault_entry,
             import_project_audio,
             resolve_project_audio,
+            generate_waveform,
             load_waveform_cache,
             save_waveform_cache,
             write_export_file,

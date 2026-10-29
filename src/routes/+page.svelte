@@ -29,6 +29,7 @@
     createVaultProject,
     deleteVaultEntry,
     exportTextFile,
+    generateProjectWaveform,
     importProjectAudio,
     listVault,
     loadWaveformCache,
@@ -122,6 +123,9 @@
   let waveformTimer: ReturnType<typeof setTimeout> | null = null;
   let waveformAbort: AbortController | null = null;
   let waveformGeneration = 0;
+  let audioLoadGeneration = 0;
+  let audioRetryCount = 0;
+  let audioRetryTimer: ReturnType<typeof setTimeout> | null = null;
   let textareaResizeFrame: number | null = null;
   const pendingTextareaResizes = new Set<HTMLTextAreaElement>();
   let timelineZoom = $state(1);
@@ -912,6 +916,8 @@
         undoStack = [];
         redoStack = [];
         resetWaveform();
+        cancelAudioRetry();
+        audioLoadGeneration += 1;
         audioUrl = '';
         audioError = '';
         localStorage.removeItem('zyykVerse.lastProject');
@@ -957,9 +963,8 @@
       if (!source) return;
       const imported = await importProjectAudio(source, filePath, project.metadata.id);
       project.audio = { relativePath: imported.relativePath, originalName: imported.originalName, managed: true };
-      resetWaveform();
-      audioUrl = await resolveProjectAudio(filePath, imported.relativePath);
       touch();
+      await loadProjectAudio();
       notify(t('audioAdded', { name: imported.originalName }));
     } catch (error) {
       audioError = String(error);
@@ -968,6 +973,9 @@
   }
 
   async function loadProjectAudio() {
+    cancelAudioRetry();
+    const generation = ++audioLoadGeneration;
+    audioRetryCount = 0;
     resetWaveform();
     audioUrl = '';
     audioDuration = 0;
@@ -975,19 +983,61 @@
     audioPlaying = false;
     audioError = '';
     if (!filePath || !project.audio) return;
+    const projectPath = filePath;
+    const relativePath = project.audio.relativePath;
     try {
-      const path = await resolveProjectAudio(filePath, project.audio.relativePath);
+      const path = await resolveProjectAudio(projectPath, relativePath);
+      if (generation !== audioLoadGeneration || filePath !== projectPath || project.audio?.relativePath !== relativePath) return;
       audioUrl = path;
-      const cached = await loadWaveformCache(filePath, project.audio.relativePath);
+      const cached = await loadWaveformCache(projectPath, relativePath);
+      if (generation !== audioLoadGeneration || filePath !== projectPath || project.audio?.relativePath !== relativePath) return;
       if (cached?.length) waveformPeaks = cached;
     } catch (error) {
-      audioError = String(error);
-      notify(audioError);
+      if (generation !== audioLoadGeneration) return;
+      if (!scheduleAudioRetry()) {
+        audioError = String(error);
+        notify(audioError);
+      }
+    }
+  }
+
+  function cancelAudioRetry() {
+    if (audioRetryTimer) clearTimeout(audioRetryTimer);
+    audioRetryTimer = null;
+  }
+
+  function scheduleAudioRetry(): boolean {
+    if (!filePath || !project.audio || audioRetryCount >= 2) return false;
+    cancelAudioRetry();
+    audioRetryCount += 1;
+    const generation = audioLoadGeneration;
+    audioRetryTimer = setTimeout(() => void retryProjectAudio(generation), 250 * audioRetryCount);
+    return true;
+  }
+
+  async function retryProjectAudio(generation: number) {
+    audioRetryTimer = null;
+    if (generation !== audioLoadGeneration || !filePath || !project.audio) return;
+    const projectPath = filePath;
+    const relativePath = project.audio.relativePath;
+    try {
+      const path = await resolveProjectAudio(projectPath, relativePath);
+      if (generation !== audioLoadGeneration || filePath !== projectPath || project.audio?.relativePath !== relativePath) return;
+      if (!waveformPeaks.length) cancelWaveformWork();
+      audioError = '';
+      audioUrl = path;
+    } catch (error) {
+      if (generation !== audioLoadGeneration) return;
+      if (!scheduleAudioRetry()) {
+        audioError = String(error);
+        notify(audioError);
+      }
     }
   }
 
   function handleLoadedMetadata() {
     if (!audioElement) return;
+    audioRetryCount = 0;
     audioError = '';
     audioDuration = Number.isFinite(audioElement.duration) ? audioElement.duration : 0;
   }
@@ -1031,10 +1081,23 @@
     waveformLoading = true;
     waveformPending = false;
     try {
-      const peaks = await decodeWaveform(expectedUrl, controller.signal);
+      const projectPath = filePath;
+      const relativePath = project.audio?.relativePath;
+      let generatedNatively = false;
+      let peaks: number[] | null = null;
+      if (projectPath && relativePath) {
+        try {
+          peaks = await generateProjectWaveform(projectPath, relativePath);
+          generatedNatively = Boolean(peaks?.length);
+        } catch {
+          // O fallback web mantém o modo de desenvolvimento e oferece uma
+          // segunda rota caso um codec nativo específico não esteja disponível.
+        }
+      }
+      peaks ??= await decodeWaveform(expectedUrl, controller.signal);
       if (generation !== waveformGeneration || expectedUrl !== audioUrl || audioPlaying) return;
       waveformPeaks = peaks;
-      if (filePath && project.audio && expectedUrl === audioUrl) {
+      if (!generatedNatively && filePath && project.audio && expectedUrl === audioUrl) {
         void saveWaveformCache(filePath, project.audio.relativePath, peaks).catch(() => undefined);
       }
     } catch (error) {
@@ -1489,6 +1552,8 @@
       window.removeEventListener('pointerdown', closeContextMenu);
       unlistenDrop?.();
       if (autosaveTimer) clearTimeout(autosaveTimer);
+      cancelAudioRetry();
+      audioLoadGeneration += 1;
       cancelWaveformWork();
       stopPlaybackClock();
     };
@@ -1500,6 +1565,11 @@
 
   function handleAudioError(event: Event) {
     const media = event.currentTarget as HTMLAudioElement;
+    if (media !== audioElement) return;
+    if ((media.error?.code === 2 || media.error?.code === 4) && scheduleAudioRetry()) {
+      audioError = '';
+      return;
+    }
     const messages: Record<number, string> = {
       1: t('audioInterrupted'),
       2: t('audioReadFailed'),
