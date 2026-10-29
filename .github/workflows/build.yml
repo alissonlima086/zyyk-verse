@@ -1,23 +1,9 @@
-name: Build and audit AppImage
+name: Build release candidate
 
 on:
   workflow_dispatch:
-  pull_request:
-    branches: [main]
-    paths:
-      - ".github/workflows/build.yml"
-      - ".github/compliance/**"
-      - "src/**"
-      - "src-tauri/**"
-      - "tests/**"
-      - "package.json"
-      - "package-lock.json"
-      - "vite.config.js"
-      - "tsconfig.json"
-      - "LICENSE"
   push:
     branches: [main]
-    tags: ["v*"]
     paths:
       - ".github/workflows/build.yml"
       - ".github/compliance/**"
@@ -31,7 +17,7 @@ on:
       - "LICENSE"
 
 concurrency:
-  group: appimage-${{ github.ref }}
+  group: release-candidate-main
   cancel-in-progress: true
 
 permissions:
@@ -43,10 +29,40 @@ env:
   SYFT_VERSION: 1.55.0
 
 jobs:
+  release-state:
+    name: Verificar versão
+    runs-on: ubuntu-22.04
+    outputs:
+      should-build: ${{ steps.release.outputs.should-build }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Verificar se a versão precisa de artefato
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          version="$(node --print "require('./package.json').version")"
+          tag="v${version}"
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            echo "Build manual solicitado para ${tag}."
+            echo "should-build=true" >> "$GITHUB_OUTPUT"
+          elif gh release view "$tag" >/dev/null 2>&1; then
+            echo "${tag} já foi publicada; nenhuma compilação pesada é necessária."
+            echo "should-build=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "${tag} ainda não foi publicada; preparando candidato."
+            echo "should-build=true" >> "$GITHUB_OUTPUT"
+          fi
+
   build-appimage:
     name: Linux x86_64
+    needs: release-state
+    if: needs.release-state.outputs.should-build == 'true'
     runs-on: ubuntu-22.04
-    timeout-minutes: 90
+    timeout-minutes: 60
 
     steps:
       - name: Checkout
@@ -63,6 +79,21 @@ jobs:
       - name: Configurar Rust
         uses: dtolnay/rust-toolchain@7dcc700092a1a8b9c17ba0e140b4e34e93000946 # 1.90.0
 
+      - name: Restaurar cache Rust e Tauri
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: |
+            ~/.cargo/bin/cargo-about
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            ~/.cache/tauri
+            src-tauri/target
+          key: ${{ runner.os }}-cargo-release-${{ hashFiles('src-tauri/Cargo.lock') }}-about-${{ env.CARGO_ABOUT_VERSION }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-release-${{ hashFiles('src-tauri/Cargo.lock') }}-
+            ${{ runner.os }}-cargo-
+
       - name: Habilitar repositórios de código-fonte do Ubuntu
         shell: bash
         run: |
@@ -73,9 +104,8 @@ jobs:
           DEBIAN_FRONTEND: noninteractive
         run: |
           sudo apt-get update
-          # A imagem hospedada pode conter revisões que já saíram dos índices
-          # jammy-updates. Alinhe os pacotes sem remover componentes do runner,
-          # garantindo que o fonte exato continue resolvível mais adiante.
+          # Alinha binários e fontes do Ubuntu para preservar o código-fonte
+          # correspondente exato que acompanha a distribuição.
           sudo --preserve-env=DEBIAN_FRONTEND apt-get upgrade \
             --yes --with-new-pkgs --no-install-recommends \
             -o APT::Get::Always-Include-Phased-Updates=true
@@ -99,7 +129,9 @@ jobs:
       - name: Instalar ferramentas de auditoria fixadas
         shell: bash
         run: |
-          cargo install --locked --version "$CARGO_ABOUT_VERSION" --features cli cargo-about
+          if ! cargo about --version 2>/dev/null | grep --fixed-strings --quiet "$CARGO_ABOUT_VERSION"; then
+            cargo install --locked --version "$CARGO_ABOUT_VERSION" --features cli cargo-about
+          fi
           curl --fail --location --silent --show-error \
             "https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/syft_${SYFT_VERSION}_linux_amd64.tar.gz" \
             --output /tmp/syft.tar.gz
@@ -114,20 +146,21 @@ jobs:
           sudo install -m 0755 \
             "/tmp/cargo-audit-x86_64-unknown-linux-musl-v${CARGO_AUDIT_VERSION}/cargo-audit" \
             /usr/local/bin/cargo-audit
+          cargo about --version
           syft version
           cargo audit --version
 
       - name: Instalar dependências JavaScript
         run: npm ci
 
-      - name: Validar versão da tag
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Validar versões do projeto
         shell: bash
         run: |
           package_version="$(node --print "require('./package.json').version")"
-          expected_tag="v${package_version}"
-          if [[ "${GITHUB_REF_NAME}" != "${expected_tag}" ]]; then
-            echo "A tag ${GITHUB_REF_NAME} não corresponde à versão ${package_version}." >&2
+          tauri_version="$(node --print "require('./src-tauri/tauri.conf.json').version")"
+          cargo_version="$(sed -n '/^\[package\]/,/^\[/s/^version = "\([^"]*\)"/\1/p' src-tauri/Cargo.toml | head -1)"
+          if ! [[ "$package_version" == "$tauri_version" && "$package_version" == "$cargo_version" ]]; then
+            echo "Versões divergentes: package=${package_version}, tauri=${tauri_version}, cargo=${cargo_version}." >&2
             exit 1
           fi
 
@@ -160,9 +193,7 @@ jobs:
             ../.github/compliance/rust-notices.hbs
 
       - name: Preparar primeira passagem
-        run: |
-          npm run build
-          node .github/compliance/audit.mjs bootstrap
+        run: node .github/compliance/audit.mjs bootstrap
 
       - name: Compilar AppImage para inspeção
         run: npm run tauri -- build --bundles appimage
@@ -197,8 +228,8 @@ jobs:
           bash .github/compliance/collect-copyleft-sources.sh \
             ".compliance/ZYYK-Verse-${version}-source.tar.gz"
 
-      - name: Reconstruir AppImage com documentação auditada
-        run: npm run tauri -- build --bundles appimage
+      - name: Reempacotar AppImage com documentação auditada
+        run: npm run tauri -- bundle --bundles appimage --ci
 
       - name: Validar AppImage final
         shell: bash
@@ -235,7 +266,7 @@ jobs:
           sha256sum -- *.AppImage *.md *.json *.tar.gz > SHA256SUMS
           cat SHA256SUMS
 
-      - name: Publicar artefato do workflow
+      - name: Publicar candidato do commit
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: zyyk-verse-linux-x86_64
@@ -247,44 +278,3 @@ jobs:
             src-tauri/target/release/bundle/appimage/SHA256SUMS
           if-no-files-found: error
           retention-days: 14
-
-  publish-release:
-    name: Publicar release
-    if: startsWith(github.ref, 'refs/tags/')
-    needs: build-appimage
-    runs-on: ubuntu-22.04
-    permissions:
-      contents: write
-
-    steps:
-      - name: Baixar artefatos validados
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.0
-        with:
-          name: zyyk-verse-linux-x86_64
-          path: release-assets
-
-      - name: Validar checksums
-        working-directory: release-assets
-        run: sha256sum --check SHA256SUMS
-
-      - name: Criar GitHub Release imutável
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-        shell: bash
-        run: |
-          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            echo "A release $GITHUB_REF_NAME já existe; recusando substituir artefatos publicados." >&2
-            exit 1
-          fi
-          shopt -s nullglob
-          applications=(release-assets/*.AppImage)
-          sources=(release-assets/ZYYK-Verse-*-source.tar.gz)
-          if [[ "${#applications[@]}" -ne 1 || "${#sources[@]}" -ne 1 ]]; then
-            echo "Esperados um AppImage e um arquivo de código-fonte; encontrados ${#applications[@]} e ${#sources[@]}." >&2
-            exit 1
-          fi
-          gh release create "$GITHUB_REF_NAME" "${applications[0]}" "${sources[0]}" \
-            --verify-tag \
-            --generate-notes \
-            --title "ZYYK Verse ${GITHUB_REF_NAME#v}"
