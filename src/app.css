@@ -254,7 +254,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .cue-handle { position: absolute; top: -1px; bottom: -1px; width: 5px; padding: 0; border: 0; background: #aebcff; cursor: ew-resize; }
 .cue-handle.start { left: -2px; border-radius: 2px 0 0 2px; }
 .cue-handle.end { right: -2px; border-radius: 0 2px 2px 0; }
-.playhead { position: absolute; z-index: 5; top: 0; bottom: 0; width: 1px; background: #ff6b6b; pointer-events: none; }
+.playhead { position: absolute; z-index: 5; top: 0; bottom: 0; left: 0; width: 1px; background: #ff6b6b; pointer-events: none; will-change: transform; }
 .playhead i { position: absolute; top: 0; left: -4px; width: 9px; height: 7px; background: #ff6b6b; clip-path: polygon(0 0, 100% 0, 50% 100%); }
 .snap-guide { position: absolute; z-index: 4; top: 0; bottom: 0; width: 1px; border-left: 1px dashed rgba(174,188,255,.9); pointer-events: none; }
 .snap-guide span { position: absolute; top: 19px; left: 4px; padding: 1px 3px; border-radius: 2px; background: rgba(79,107,255,.82); color: white; font: 7px ui-monospace, monospace; letter-spacing: .04em; }

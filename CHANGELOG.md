@@ -7,6 +7,36 @@ e o projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ## [Não lançado]
 
+## [0.1.4] - 2026-10-29
+
+### Adicionado
+
+- Motor de áudio baseado no ZYYK Studio, com decodificação em memória pela Web
+  Audio API e fallback nativo para WAV PCM quando o WebKit não reconhece o
+  arquivo original.
+- Testes para extração rápida da waveform a partir do buffer decodificado e
+  para o fallback nativo de áudio.
+
+### Alterado
+
+- A waveform passa a ser gerada imediatamente a partir do mesmo buffer usado
+  na reprodução, sem espera artificial nem uma segunda decodificação.
+- A agulha da timeline passa a usar o relógio monotônico do `AudioContext`,
+  mantendo o movimento contínuo e sincronizado com o som.
+- Releases passam a anexar um único pacote consolidado de fontes copyleft para
+  as duas arquiteturas, aproveitando os arquivos de código-fonte da tag que o
+  próprio GitHub disponibiliza.
+- Notas das releases passam a ser extraídas deste changelog, sem sufixos
+  automáticos de autoria ou número do pull request.
+
+### Corrigido
+
+- Travamentos e erros transitórios `NotSupportedError` ao buscar outra posição
+  enquanto o áudio estava reproduzindo.
+- Reprodução que continuava sem que a agulha acompanhasse a posição do áudio.
+- Retomada inconsistente depois de arrastar a agulha, pausar ou marcar pontos
+  de entrada e saída.
+
 ## [0.1.3] - 2026-10-29
 
 ### Adicionado
@@ -83,7 +113,8 @@ e o projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 - Distribuição Linux em AppImage com fontes correspondentes e informações de
   conformidade.
 
-[Não lançado]: https://github.com/alissonlima086/zyyk-verse/compare/v0.1.3...HEAD
+[Não lançado]: https://github.com/alissonlima086/zyyk-verse/compare/v0.1.4...HEAD
+[0.1.4]: https://github.com/alissonlima086/zyyk-verse/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/alissonlima086/zyyk-verse/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/alissonlima086/zyyk-verse/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/alissonlima086/zyyk-verse/compare/v0.1.0...v0.1.1

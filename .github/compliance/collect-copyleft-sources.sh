@@ -2,9 +2,10 @@
 set -Eeuo pipefail
 
 OUTPUT_ARCHIVE="${1:?Informe o caminho do arquivo de código-fonte correspondente}"
-COMPLIANCE_DIR="${2:-.compliance}"
+RELEASE_ARCH="${2:?Informe a arquitetura da release}"
+COMPLIANCE_DIR="${3:-.compliance}"
 VERSION="$(node --print "require('./package.json').version")"
-ARCHIVE_ROOT="ZYYK-Verse-${VERSION}-source"
+ARCHIVE_ROOT="ZYYK-Verse-${VERSION}-${RELEASE_ARCH}-third-party-copyleft-sources"
 TEMP_DIR="$(mktemp -d)"
 ROOT_DIR="$TEMP_DIR/$ARCHIVE_ROOT"
 trap 'rm -rf -- "$TEMP_DIR"' EXIT
@@ -13,8 +14,8 @@ mkdir -p \
   "$ROOT_DIR/third-party-sources/native" \
   "$ROOT_DIR/third-party-sources/cargo" \
   "$ROOT_DIR/third-party-sources/npm" \
-  "$ROOT_DIR/compliance"
-git archive HEAD | tar -x -C "$ROOT_DIR"
+  "$ROOT_DIR/manifests/$RELEASE_ARCH" \
+  "$ROOT_DIR/compliance/$RELEASE_ARCH"
 
 native_manifest="$COMPLIANCE_DIR/copyleft-native-sources.tsv"
 cargo_manifest="$COMPLIANCE_DIR/copyleft-cargo-sources.tsv"
@@ -64,31 +65,26 @@ while IFS=$'\t' read -r name version license; do
   )
 done < "$frontend_manifest"
 
-cp "$native_manifest" "$ROOT_DIR/third-party-sources/native-sources.tsv"
-cp "$cargo_manifest" "$ROOT_DIR/third-party-sources/cargo-sources.tsv"
-cp "$frontend_manifest" "$ROOT_DIR/third-party-sources/frontend-sources.tsv"
-cp "$COMPLIANCE_DIR/THIRD_PARTY_NOTICES.md" "$ROOT_DIR/compliance/"
-cp "$COMPLIANCE_DIR/SOURCE_OFFER.md" "$ROOT_DIR/compliance/"
-cp "$COMPLIANCE_DIR/SBOM.spdx.json" "$ROOT_DIR/compliance/"
-cp "$COMPLIANCE_DIR/AUDIT_REPORT.md" "$ROOT_DIR/compliance/"
+cp "$native_manifest" "$ROOT_DIR/manifests/$RELEASE_ARCH/native-sources.tsv"
+cp "$cargo_manifest" "$ROOT_DIR/manifests/$RELEASE_ARCH/cargo-sources.tsv"
+cp "$frontend_manifest" "$ROOT_DIR/manifests/$RELEASE_ARCH/frontend-sources.tsv"
+cp "$COMPLIANCE_DIR/THIRD_PARTY_NOTICES.md" "$ROOT_DIR/compliance/$RELEASE_ARCH/"
+cp "$COMPLIANCE_DIR/SOURCE_OFFER.md" "$ROOT_DIR/compliance/$RELEASE_ARCH/"
+cp "$COMPLIANCE_DIR/SBOM.spdx.json" "$ROOT_DIR/compliance/$RELEASE_ARCH/"
+cp "$COMPLIANCE_DIR/AUDIT_REPORT.md" "$ROOT_DIR/compliance/$RELEASE_ARCH/"
 
 printf '%s\n' \
-  "Código-fonte correspondente do ZYYK Verse ${VERSION}" \
+  "Fontes de terceiros copyleft distribuídas pelo ZYYK Verse ${VERSION}" \
   '' \
-  'A raiz contém o código do Verse e seus arquivos de build. O diretório' \
-  'third-party-sources contém as fontes correspondentes dos componentes copyleft' \
-  'efetivamente encontrados no AppImage, separadas em native, cargo e npm.' \
+  'third-party-sources contém as fontes dos componentes copyleft efetivamente' \
+  'encontrados nos AppImages, separadas em native, cargo e npm.' \
   '' \
-  'Avisos, SBOM, oferta de fontes e relatório de auditoria estão em compliance/.' \
+  'manifests/ e compliance/ separam a proveniência e a auditoria por arquitetura.' \
+  'O código do Verse é disponibilizado pelos arquivos Source code da tag no GitHub.' \
   > "$ROOT_DIR/README.txt"
-
-(
-  cd "$ROOT_DIR"
-  find . -type f ! -name SHA256SUMS -print0 | LC_ALL=C sort -z | xargs -0 sha256sum > SHA256SUMS
-)
 
 mkdir -p "$(dirname "$OUTPUT_ARCHIVE")"
 tar --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner \
   -czf "$OUTPUT_ARCHIVE" -C "$TEMP_DIR" "$ARCHIVE_ROOT"
 test -s "$OUTPUT_ARCHIVE"
-echo "Código-fonte correspondente preservado em: $OUTPUT_ARCHIVE"
+echo "Fontes copyleft de $RELEASE_ARCH preservadas em: $OUTPUT_ARCHIVE"
