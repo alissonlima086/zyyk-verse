@@ -114,11 +114,13 @@ export function syncExactDuplicateTranslations(
   project: VerseProject,
   sourceUnitId: string,
 ): TranslationUnit[] {
+  const sourceById = new Map(project.sourceSegments.map((segment) => [segment.id, segment]));
+  const translationById = new Map(project.translations.map((unit) => [unit.id, unit]));
   const sourceGroup = project.alignmentGroups.find((group) => group.translationUnitIds.includes(sourceUnitId));
-  const sourceUnit = project.translations.find((unit) => unit.id === sourceUnitId);
+  const sourceUnit = translationById.get(sourceUnitId);
   if (!sourceGroup || !sourceUnit) return [];
   const originalText = sourceGroup.sourceSegmentIds
-    .map((id) => project.sourceSegments.find((segment) => segment.id === id))
+    .map((id) => sourceById.get(id))
     .filter((segment): segment is SourceSegment => segment?.kind === 'line')
     .map((segment) => segment.text.trim())
     .join('\n');
@@ -129,12 +131,12 @@ export function syncExactDuplicateTranslations(
   for (const group of project.alignmentGroups) {
     if (group.id === sourceGroup.id) continue;
     const candidateOriginal = group.sourceSegmentIds
-      .map((id) => project.sourceSegments.find((segment) => segment.id === id))
+      .map((id) => sourceById.get(id))
       .filter((segment): segment is SourceSegment => segment?.kind === 'line')
       .map((segment) => segment.text.trim())
       .join('\n');
     if (candidateOriginal !== originalText) continue;
-    const candidate = project.translations.find((unit) => group.translationUnitIds.includes(unit.id));
+    const candidate = group.translationUnitIds.map((id) => translationById.get(id)).find(Boolean);
     if (!candidate) continue;
     let variant = selectedVariant(candidate);
     if (!variant) {

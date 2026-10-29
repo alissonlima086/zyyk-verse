@@ -12,14 +12,14 @@ import {
 import {
   cueNeighborLimits,
   cueContextAtTime,
-  findAvailableCueRange,
+  createSubtitleExport,
   formatClock,
   MIN_CUE_GAP_US,
   moveCueWithinNeighbors,
   projectToSrt,
   snapTimelineMicroseconds,
 } from '../src/lib/domain/sync.ts';
-import { insertVaultEntry, moveVaultEntryInTree, removeVaultEntry, renameVaultEntryInTree } from '../src/lib/domain/vault.ts';
+import { insertVaultEntry, moveVaultEntryInTree, removeVaultEntry, renameVaultEntryInTree, vaultCreatePlacement } from '../src/lib/domain/vault.ts';
 import {
   createHistoryEntry,
   MAX_HISTORY_ENTRIES,
@@ -182,19 +182,70 @@ test('exporta sublinhas da mesma tradução como cues independentes', () => {
   assert.equal(projectToSrt(project, 'translation'), '1\n00:00:00,000 --> 00:00:01,000\nOlá\n\n2\n00:00:01,000 --> 00:00:02,000\nEu sou\n\n3\n00:00:02,000 --> 00:00:03,000\nUma garota com 1% de bateria\n\n4\n00:00:03,000 --> 00:00:04,000\n(Hm-hm)\n');
 });
 
-test('não exporta silenciosamente um cue sem tradução', () => {
+test('exporta somente cues traduzidos e informa quantos foram omitidos', () => {
   const project = createEmptyProject('Incomplete');
-  const parsed = parseLyricsLocally('Only line');
+  const parsed = parseLyricsLocally('Translated line\nMissing line');
   project.sourceSegments = parsed.sourceSegments;
   project.translations = parsed.translations;
   project.alignmentGroups = parsed.alignmentGroups;
+  const variant = createVariant('Linha traduzida');
+  project.translations[0].variants = [variant];
+  project.translations[0].selectedVariantId = variant.id;
   project.syncTracks = [{
     id: 'track',
     role: 'translation',
-    cues: [{ id: 'cue', targetIds: [project.translations[0].id], startUs: 0, endUs: 1_000_000, textMode: 'selected-variant' }],
+    cues: [
+      { id: 'translated', targetIds: [project.translations[0].id], startUs: 0, endUs: 1_000_000, textMode: 'selected-variant' },
+      { id: 'missing', targetIds: [project.translations[1].id], startUs: 1_000_000, endUs: 2_000_000, textMode: 'selected-variant' },
+    ],
   }];
 
-  assert.throws(() => projectToSrt(project, 'translation'), /sem tradução selecionada/);
+  const result = createSubtitleExport(project, 'translation', 'srt');
+  assert.equal(result.contents, '1\n00:00:00,000 --> 00:00:01,000\nLinha traduzida\n');
+  assert.equal(result.totalCueCount, 2);
+  assert.equal(result.exportedCueCount, 1);
+  assert.equal(result.omittedCueCount, 1);
+});
+
+test('exporta WebVTT com cabeçalho e separador decimal correto', () => {
+  const project = createEmptyProject('WebVTT');
+  const parsed = parseLyricsLocally('Line');
+  project.sourceSegments = parsed.sourceSegments;
+  project.translations = parsed.translations;
+  project.alignmentGroups = parsed.alignmentGroups;
+  const variant = createVariant('Texto');
+  project.translations[0].variants = [variant];
+  project.translations[0].selectedVariantId = variant.id;
+  project.syncTracks = [{
+    id: 'track',
+    role: 'translation',
+    cues: [{ id: 'cue', targetIds: [project.translations[0].id], startUs: 125_000, endUs: 1_500_000, textMode: 'selected-variant' }],
+  }];
+
+  assert.equal(createSubtitleExport(project, 'translation', 'vtt').contents, 'WEBVTT\n\n00:00:00.125 --> 00:00:01.500\nTexto\n');
+});
+
+test('exporta LRC com metadados e timestamp em centésimos', () => {
+  const project = createEmptyProject('Canção ] teste');
+  project.metadata.artist = 'Artista';
+  project.metadata.album = 'Álbum';
+  const parsed = parseLyricsLocally('Line');
+  project.sourceSegments = parsed.sourceSegments;
+  project.translations = parsed.translations;
+  project.alignmentGroups = parsed.alignmentGroups;
+  const variant = createVariant('Primeira\nSegunda');
+  project.translations[0].variants = [variant];
+  project.translations[0].selectedVariantId = variant.id;
+  project.syncTracks = [{
+    id: 'track',
+    role: 'translation',
+    cues: [{ id: 'cue', targetIds: [project.translations[0].id], startUs: 65_430_000, endUs: 66_500_000, textMode: 'selected-variant' }],
+  }];
+
+  assert.equal(
+    createSubtitleExport(project, 'translation', 'lrc').contents,
+    '[ti:Canção ) teste]\n[ar:Artista]\n[al:Álbum]\n[by:ZYYK Verse]\n\n[01:05.43]Primeira / Segunda\n',
+  );
 });
 
 test('quantiza a timeline por frame quando não há alvo magnético próximo', () => {
@@ -239,26 +290,6 @@ test('localiza cue atual e anterior sem reordenar a trilha a cada atualização'
   assert.equal(cueContextAtTime(cues, 2.5).current?.id, 'two');
 });
 
-test('adiciona texto no playhead ou no primeiro espaço disponível adiante', () => {
-  const cues = [
-    { id: 'one', targetIds: [], startUs: 1_000_000, endUs: 2_000_000, textMode: 'selected-variant' },
-    { id: 'two', targetIds: [], startUs: 3_000_000, endUs: 4_000_000, textMode: 'selected-variant' },
-  ];
-
-  assert.deepEqual(findAvailableCueRange(cues, 500_000, 6_000_000), {
-    startUs: 500_000,
-    endUs: 999_000,
-  });
-  assert.deepEqual(findAvailableCueRange(cues, 1_500_000, 6_000_000), {
-    startUs: 2_001_000,
-    endUs: 2_999_000,
-  });
-  assert.deepEqual(findAvailableCueRange(cues, 3_500_000, 6_000_000), {
-    startUs: 4_001_000,
-    endUs: 5_001_000,
-  });
-});
-
 test('atualiza a árvore da vault incrementalmente em criação, movimento, renomeação e remoção', () => {
   const project = { name: 'Song', path: '/vault/Song.zyykverse', kind: 'project', children: [] };
   let entries = insertVaultEntry([], '/vault', null, project);
@@ -271,4 +302,18 @@ test('atualiza a árvore da vault incrementalmente em criação, movimento, reno
   assert.equal(entries[0].children[0].path, '/vault/Archive/Song.zyykverse');
   entries = removeVaultEntry(entries, '/vault/Archive');
   assert.deepEqual(entries, []);
+});
+
+test('posiciona a criação inline no fim da pasta selecionada', () => {
+  const album = { name: 'Album', path: '/vault/Album', kind: 'folder', children: [] };
+  const song = { name: 'Song', path: '/vault/Album/Song.zyykverse', kind: 'project', children: [] };
+  const other = { name: 'Other', path: '/vault/Other.zyykverse', kind: 'project', children: [] };
+  const flat = [
+    { entry: album, depth: 0 },
+    { entry: song, depth: 1 },
+    { entry: other, depth: 0 },
+  ];
+
+  assert.deepEqual(vaultCreatePlacement(flat, album.path), { index: 2, depth: 1 });
+  assert.deepEqual(vaultCreatePlacement(flat, null), { index: 3, depth: 0 });
 });
