@@ -673,7 +673,8 @@
       touch();
       notify(t('organizedVerses', { count: parsed.lineCount }));
     } catch (error) {
-      importError = String(error instanceof Error ? error.message : error);
+      recordUiError('lyrics import', error);
+      importError = t('lyricsImportFailed');
     }
   }
 
@@ -723,7 +724,10 @@
         do {
           saveRequested = false;
           const savingVersion = changeVersion;
-          const result = await saveProject(cloneProject(project), filePath);
+          const result = await saveProject(cloneProject(project), filePath, {
+            projectFilter: t('projectFileFilter'),
+            untitledFileName: t('untitledFileName'),
+          });
           if (!result) return false;
           saved = true;
           filePath = result.path;
@@ -735,7 +739,8 @@
         if (!silent) notify(t('projectSaved'));
         return saved;
       } catch (error) {
-        notify(t('saveFailed', { error: String(error) }));
+        recordUiError('project save', error);
+        notify(t('saveFailed'));
         return false;
       } finally {
         saving = false;
@@ -761,7 +766,8 @@
       localStorage.setItem('zyykVerse.lastProject', path);
       await loadProjectAudio();
     } catch (error) {
-      notify(t('openFailed', { error: String(error) }));
+      recordUiError('project open', error);
+      notify(t('openFailed'));
     }
   }
 
@@ -833,8 +839,16 @@
     const name = createName.trim();
     createMode = null;
     createName = '';
-    if (mode === 'project') await createNewProject(name);
-    else await createNewFolder(name);
+    if (mode === 'project') {
+      try {
+        await createNewProject(name);
+      } catch (error) {
+        recordUiError('project creation', error);
+        notify(t('projectCreateFailed'));
+      }
+    } else {
+      await createNewFolder(name);
+    }
   }
 
   async function createNewProject(title: string) {
@@ -870,7 +884,8 @@
         children: [],
       });
     } catch (error) {
-      notify(String(error));
+      recordUiError('folder creation', error);
+      notify(t('folderCreateFailed'));
     }
   }
 
@@ -912,7 +927,8 @@
       vaultEntries = renameVaultEntryInTree(vaultEntries, entry.path, renamedPath, name);
       notify(entry.kind === 'folder' ? t('folderRenamed') : t('projectRenamed'));
     } catch (error) {
-      notify(t('renameFailed', { error: String(error) }));
+      recordUiError('vault rename', error);
+      notify(t('renameFailed'));
     }
   }
 
@@ -929,7 +945,8 @@
       vaultEntries = moveVaultEntryInTree(vaultEntries, vaultPath, source, targetDirectory, moved);
       if (!expandedFolderPaths.includes(targetDirectory)) expandedFolderPaths = [...expandedFolderPaths, targetDirectory];
     } catch (error) {
-      notify(String(error));
+      recordUiError('vault move', error);
+      notify(t('moveFailed'));
     }
   }
 
@@ -974,7 +991,8 @@
       vaultEntries = removeVaultEntry(vaultEntries, entry.path);
       notify(entry.kind === 'folder' ? t('folderDeleted') : t('projectDeleted'));
     } catch (error) {
-      notify(t('deleteFailed', { error: String(error) }));
+      recordUiError('vault deletion', error);
+      notify(t('deleteFailed'));
     }
   }
 
@@ -1015,8 +1033,9 @@
       await loadProjectAudio();
       notify(t('audioAdded', { name: imported.originalName }));
     } catch (error) {
-      audioError = String(error);
-      notify(t('audioAddFailed', { error: audioError }));
+      recordUiError('audio import', error);
+      audioError = t('audioAddFailed');
+      notify(audioError);
     }
   }
 
@@ -1077,7 +1096,8 @@
       if (controller.signal.aborted || generation !== audioLoadGeneration) return;
       audioEngine.clear();
       audioReady = false;
-      audioError = String(error);
+      recordUiError('audio load', error);
+      audioError = t('audioLoadFailed');
       notify(audioError);
     } finally {
       if (generation === audioLoadGeneration) {
@@ -1145,7 +1165,8 @@
     playbackRequested = false;
     audioPlaying = false;
     stopPlaybackClock();
-    audioError = error ? `${message} ${String(error)}` : message;
+    if (error) recordUiError('audio playback', error);
+    audioError = message;
     notify(audioError);
   }
 
@@ -1449,7 +1470,7 @@
   }
 
   function exportBaseName(): string {
-    return project.metadata.title.trim().replace(/[^\p{L}\p{N}._-]+/gu, '-').replace(/^-|-$/g, '') || 'legenda';
+    return project.metadata.title.trim().replace(/[^\p{L}\p{N}._-]+/gu, '-').replace(/^-|-$/g, '') || t('exportFallbackName');
   }
 
   function openExportModal() {
@@ -1468,11 +1489,12 @@
   async function selectExportPath() {
     exportFailure = '';
     try {
-      const selected = await chooseExportPath(`${exportBaseName()}-traducao.${exportFormat}`, exportFormat);
+      const selected = await chooseExportPath(`${exportBaseName()}-${t('exportTranslationSuffix')}.${exportFormat}`, exportFormat);
       if (!selected) return;
       exportPath = selected.toLowerCase().endsWith(`.${exportFormat}`) ? selected : `${selected}.${exportFormat}`;
     } catch (error) {
-      exportFailure = t('exportFailed', { error: String(error) });
+      recordUiError('export path selection', error);
+      exportFailure = t('exportFailed');
     }
   }
 
@@ -1486,7 +1508,8 @@
       showExport = false;
       notify(t('exportCompleted', { format: exportFormat.toUpperCase() }));
     } catch (error) {
-      exportFailure = t('exportFailed', { error: String(error) });
+      recordUiError('subtitle export', error);
+      exportFailure = t('exportFailed');
     } finally {
       exporting = false;
     }
@@ -1497,6 +1520,10 @@
     window.setTimeout(() => {
       if (toast === message) toast = '';
     }, 2600);
+  }
+
+  function recordUiError(context: string, error: unknown) {
+    console.error(`[ZYYK Verse: ${context}]`, error);
   }
 
   function updateEditorZoom(value: number) {
@@ -1652,7 +1679,7 @@
 
   {#if vaultOpen}
     <aside class="vault-panel">
-      <div class="panel-title"><strong>{vaultPath?.split('/').at(-1) ?? 'Vault'}</strong><div class="vault-create"><button class="icon-button" onclick={() => newMenuOpen = !newMenuOpen} title={t('createInVault')} aria-label={t('createFileOrFolder')}>＋</button>{#if newMenuOpen}<div class="vault-new-menu"><button onclick={() => beginCreate('project')}>{t('newProject')}</button><button onclick={() => beginCreate('folder')}>{t('newFolder')}</button></div>{/if}</div></div>
+      <div class="panel-title"><strong>{vaultPath?.split('/').at(-1) ?? t('vaultFallback')}</strong><div class="vault-create"><button class="icon-button" onclick={() => newMenuOpen = !newMenuOpen} title={t('createInVault')} aria-label={t('createFileOrFolder')}>＋</button>{#if newMenuOpen}<div class="vault-new-menu"><button onclick={() => beginCreate('project')}>{t('newProject')}</button><button onclick={() => beginCreate('folder')}>{t('newFolder')}</button></div>{/if}</div></div>
       <div class="vault-search"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.25"/><path d="m12.5 12.5 4 4"/></svg><input bind:value={vaultSearch} aria-label={t('searchVault')} placeholder={t('search')} /></div>
       <nav class="file-tree" class:dragging={vaultDragActive} class:drop-target={vaultDropTarget === vaultPath} aria-label={t('vaultFiles')} data-vault-drop={vaultPath ?? undefined} oncontextmenu={(event) => openVaultContextMenu(event, null)}>
         {#if createMode && createPlacement.index === 0}{@render vaultCreateInput(createPlacement.depth)}{/if}
@@ -1877,7 +1904,7 @@
     <div class="import-modal" role="dialog" aria-modal="true" aria-labelledby="import-title" tabindex="-1">
       <header><div><span>{t('importOriginal')}</span><h1 id="import-title">{t('pasteCompleteLyrics')}</h1></div><button class="icon-button" onclick={() => showImport = false} aria-label={t('close')}>×</button></header>
       <div class="modal-content">
-        <p>{t('importInstructions')} <code>[Chorus]</code> {t('importInstructionsEnd')}</p>
+        <p>{t('importInstructions')} <code>{t('importSectionExample')}</code> {t('importInstructionsEnd')}</p>
         <label class="project-name-field"><span>{t('projectName')}</span><input bind:value={importTitle} placeholder={t('songName')} /></label>
         <textarea bind:value={importText} placeholder={t('importPlaceholder')}></textarea>
         <div class="import-summary"><span>{t('verseCount', { count: importPreview.lineCount })}</span><span>{t('sectionCount', { count: importPreview.sectionCount })}</span></div>
