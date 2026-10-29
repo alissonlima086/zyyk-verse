@@ -7,6 +7,8 @@ e o projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ## [Não lançado]
 
+## [0.1.2] - 2026-10-29
+
 ### Corrigido
 
 - Recuperação automática do áudio quando a abertura inicial do projeto ou o
@@ -45,6 +47,7 @@ e o projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 - Distribuição Linux em AppImage com fontes correspondentes e informações de
   conformidade.
 
-[Não lançado]: https://github.com/alissonlima086/zyyk-verse/compare/v0.1.1...HEAD
+[Não lançado]: https://github.com/alissonlima086/zyyk-verse/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/alissonlima086/zyyk-verse/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/alissonlima086/zyyk-verse/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/alissonlima086/zyyk-verse/releases/tag/v0.1.0
