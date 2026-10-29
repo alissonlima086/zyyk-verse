@@ -84,15 +84,24 @@ jobs:
       - name: Baixar artefato validado
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.0
         with:
-          name: zyyk-verse-linux-x86_64
+          pattern: zyyk-verse-linux-*
           path: release-assets
           github-token: ${{ github.token }}
           repository: ${{ github.repository }}
           run-id: ${{ steps.candidate.outputs.run-id }}
 
       - name: Validar checksums
-        working-directory: release-assets
-        run: sha256sum --check SHA256SUMS
+        shell: bash
+        run: |
+          shopt -s nullglob
+          artifact_directories=(release-assets/zyyk-verse-linux-*)
+          if [[ "${#artifact_directories[@]}" -ne 2 ]]; then
+            echo "Esperados dois artefatos Linux; encontrados ${#artifact_directories[@]}." >&2
+            exit 1
+          fi
+          for directory in "${artifact_directories[@]}"; do
+            (cd "$directory" && sha256sum --check SHA256SUMS)
+          done
 
       - name: Criar GitHub Release imutável
         env:
@@ -105,13 +114,13 @@ jobs:
             exit 1
           fi
           shopt -s nullglob
-          applications=(release-assets/*.AppImage)
-          sources=(release-assets/ZYYK-Verse-*-source.tar.gz)
-          if [[ "${#applications[@]}" -ne 1 || "${#sources[@]}" -ne 1 ]]; then
-            echo "Esperados um AppImage e um arquivo de código-fonte; encontrados ${#applications[@]} e ${#sources[@]}." >&2
+          applications=(release-assets/zyyk-verse-linux-*/*.AppImage)
+          sources=(release-assets/zyyk-verse-linux-*/ZYYK-Verse-*-source.tar.gz)
+          if [[ "${#applications[@]}" -ne 2 || "${#sources[@]}" -ne 2 ]]; then
+            echo "Esperados dois AppImages e dois arquivos de código-fonte; encontrados ${#applications[@]} e ${#sources[@]}." >&2
             exit 1
           fi
-          gh release create "$GITHUB_REF_NAME" "${applications[0]}" "${sources[0]}" \
+          gh release create "$GITHUB_REF_NAME" "${applications[@]}" "${sources[@]}" \
             --verify-tag \
             --generate-notes \
             --title "ZYYK Verse ${GITHUB_REF_NAME#v}"
