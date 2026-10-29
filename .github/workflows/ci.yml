@@ -1,0 +1,94 @@
+name: CI
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/**"
+      - ".github/compliance/**"
+      - "src/**"
+      - "src-tauri/**"
+      - "tests/**"
+      - "package.json"
+      - "package-lock.json"
+      - "vite.config.js"
+      - "tsconfig.json"
+      - "LICENSE"
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_AUDIT_VERSION: 0.22.2
+
+jobs:
+  validate:
+    name: Testes e auditorias
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Configurar Rust
+        uses: dtolnay/rust-toolchain@7dcc700092a1a8b9c17ba0e140b4e34e93000946 # 1.90.0
+
+      - name: Restaurar cache Rust
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            src-tauri/target
+          key: ${{ runner.os }}-cargo-ci-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Instalar dependências do sistema
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo apt-get update
+          sudo --preserve-env=DEBIAN_FRONTEND apt-get install \
+            --yes --no-install-recommends \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            libssl-dev \
+            pkg-config
+
+      - name: Instalar cargo-audit fixado
+        shell: bash
+        run: |
+          curl --fail --location --silent --show-error \
+            "https://github.com/rustsec/rustsec/releases/download/cargo-audit/v${CARGO_AUDIT_VERSION}/cargo-audit-x86_64-unknown-linux-musl-v${CARGO_AUDIT_VERSION}.tgz" \
+            --output /tmp/cargo-audit.tar.gz
+          echo "7fb9497f8594b389e5fce5ef9b92db08432996895b2e0c5a0167a69ed445c428  /tmp/cargo-audit.tar.gz" | sha256sum --check
+          tar -xzf /tmp/cargo-audit.tar.gz -C /tmp \
+            "cargo-audit-x86_64-unknown-linux-musl-v${CARGO_AUDIT_VERSION}/cargo-audit"
+          sudo install -m 0755 \
+            "/tmp/cargo-audit-x86_64-unknown-linux-musl-v${CARGO_AUDIT_VERSION}/cargo-audit" \
+            /usr/local/bin/cargo-audit
+
+      - name: Instalar dependências JavaScript
+        run: npm ci
+
+      - name: Executar testes e auditorias
+        run: |
+          npm run test
+          npm run check
+          npm audit --audit-level=high
+          cargo test --manifest-path src-tauri/Cargo.toml --locked
+          cargo audit --file src-tauri/Cargo.lock
