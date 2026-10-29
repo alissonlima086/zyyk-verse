@@ -29,7 +29,7 @@ Os projetos são armazenados localmente em uma vault escolhida pelo usuário. Ca
 | Build do frontend | Vite |
 | Persistência | Arquivos JSON com extensão `.zyykverse` |
 | Áudio | WebKitGTK e GStreamer |
-| Distribuição Linux | AppImage para arquitetura x86_64 |
+| Distribuição Linux | AppImage para arquiteturas x86_64 e ARM64 |
 
 A aplicação utiliza uma arquitetura local-first. O frontend gerencia a edição e a interação com a timeline, enquanto o backend Rust valida caminhos, persiste projetos, organiza a vault, gerencia recursos de áudio e fornece o conteúdo de mídia para reprodução local.
 
