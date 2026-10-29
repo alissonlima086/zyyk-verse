@@ -9,6 +9,7 @@ on:
       - ".github/compliance/**"
       - "src/**"
       - "src-tauri/**"
+      - "scripts/**"
       - "tests/**"
       - "package.json"
       - "package-lock.json"
