@@ -16,9 +16,9 @@ e o projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 #### Added
 
-- Audio engine based on ZYYK Studio, with in-memory decoding through the Web
-  Audio API and a native WAV PCM fallback when WebKit cannot decode the
-  original file.
+- High-precision audio engine with in-memory decoding through the Web Audio
+  API and a native WAV PCM fallback when WebKit cannot decode the original
+  file.
 - Tests for fast waveform extraction from the decoded buffer and for the
   native audio fallback.
 
@@ -46,9 +46,9 @@ e o projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 #### Adicionado
 
-- Motor de áudio baseado no ZYYK Studio, com decodificação em memória pela Web
-  Audio API e fallback nativo para WAV PCM quando o WebKit não reconhece o
-  arquivo original.
+- Motor de áudio de alta precisão, com decodificação em memória pela Web Audio
+  API e fallback nativo para WAV PCM quando o WebKit não reconhece o arquivo
+  original.
 - Testes para extração rápida da waveform a partir do buffer decodificado e
   para o fallback nativo de áudio.
 
