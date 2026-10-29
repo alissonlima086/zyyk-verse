@@ -10,6 +10,27 @@ e o projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased] — Não lançado
 
+### English
+
+#### Added
+
+- Guarded release automation for version selection, bilingual changelog
+  promotion, manifest updates, validation, commit, pull request, merge,
+  multi-architecture build, tag, and GitHub release publication.
+- Resume and dry-run modes for safely recovering interrupted releases and
+  previewing the next version without changing the repository.
+
+### Português
+
+#### Adicionado
+
+- Automação protegida de lançamento para seleção de versão, promoção do
+  changelog bilíngue, atualização dos manifestos, validação, commit, pull
+  request, merge, build multi-arquitetura, tag e publicação da release no
+  GitHub.
+- Modos de retomada e simulação para recuperar lançamentos interrompidos com
+  segurança e visualizar a próxima versão sem alterar o repositório.
+
 ## [0.1.4] - 2026-10-29
 
 ### English
