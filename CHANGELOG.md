@@ -1,15 +1,50 @@
 # Changelog
 
+All notable changes to ZYYK Verse are documented in this file.
 Todas as mudanças relevantes do ZYYK Verse são registradas neste arquivo.
 
+The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and the project adheres to [Semantic Versioning](https://semver.org/).
 O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/),
 e o projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
-## [Não lançado]
+## [Unreleased] — Não lançado
 
 ## [0.1.4] - 2026-10-29
 
-### Adicionado
+### English
+
+#### Added
+
+- Audio engine based on ZYYK Studio, with in-memory decoding through the Web
+  Audio API and a native WAV PCM fallback when WebKit cannot decode the
+  original file.
+- Tests for fast waveform extraction from the decoded buffer and for the
+  native audio fallback.
+
+#### Changed
+
+- The waveform is generated immediately from the same buffer used for
+  playback, without an artificial delay or a second decoding pass.
+- The timeline playhead now uses the monotonic `AudioContext` clock, keeping
+  its movement continuous and synchronized with the sound.
+- Releases now attach a single consolidated copyleft source package for both
+  architectures while relying on the source archives automatically provided
+  by GitHub for the tagged Verse code.
+- Release notes are now extracted from this changelog without automatic author
+  or pull-request suffixes.
+
+#### Fixed
+
+- Freezes and transient `NotSupportedError` messages when seeking during
+  playback.
+- Playback continuing while the timeline playhead remained stopped.
+- Inconsistent resume behavior after dragging the playhead, pausing, or
+  setting in and out points.
+
+### Português
+
+#### Adicionado
 
 - Motor de áudio baseado no ZYYK Studio, com decodificação em memória pela Web
   Audio API e fallback nativo para WAV PCM quando o WebKit não reconhece o
@@ -17,7 +52,7 @@ e o projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 - Testes para extração rápida da waveform a partir do buffer decodificado e
   para o fallback nativo de áudio.
 
-### Alterado
+#### Alterado
 
 - A waveform passa a ser gerada imediatamente a partir do mesmo buffer usado
   na reprodução, sem espera artificial nem uma segunda decodificação.
@@ -29,7 +64,7 @@ e o projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 - Notas das releases passam a ser extraídas deste changelog, sem sufixos
   automáticos de autoria ou número do pull request.
 
-### Corrigido
+#### Corrigido
 
 - Travamentos e erros transitórios `NotSupportedError` ao buscar outra posição
   enquanto o áudio estava reproduzindo.
@@ -39,7 +74,45 @@ e o projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ## [0.1.3] - 2026-10-29
 
-### Adicionado
+### English
+
+#### Added
+
+- Linux ARM64 distribution alongside the x86_64 artifact.
+- Empty-project creation with line-by-line lyrics editing, while keeping full
+  lyrics import as an alternative.
+- Export modal with destination selection, file preview, and SRT, WebVTT, and
+  LRC format support.
+- Partial project export with a warning and count of untranslated text that
+  will be omitted.
+
+#### Changed
+
+- The new project and folder input now appears directly at the insertion
+  position in the vault tree.
+- The project details button was moved to the project header beside translation
+  progress.
+- Timeline playback and editing were optimized to reduce layout recalculations,
+  repeated lookups, and per-frame reactive work.
+- History comparison and duplicate-verse synchronization were optimized for
+  larger projects.
+- Native waveform generation can now be cancelled when playback begins or a
+  newer generation supersedes it.
+
+#### Removed
+
+- The automatic timeline text insertion button, which did not indicate which
+  verse would be added.
+
+#### Fixed
+
+- The vault creation menu now closes when clicking outside it.
+- The button for adding the next verse remains visible in WebKit when starting
+  lyrics line by line.
+
+### Português
+
+#### Adicionado
 
 - Distribuição Linux ARM64 em paralelo ao artefato x86_64.
 - Criação de projetos vazios com edição da letra linha por linha, mantendo a
@@ -49,7 +122,7 @@ e o projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 - Exportação parcial de projetos, com alerta e contagem dos textos ainda não
   traduzidos que serão omitidos.
 
-### Alterado
+#### Alterado
 
 - Campo para criar projetos e pastas exibido diretamente na posição da árvore
   da vault em que o novo item será inserido.
@@ -62,12 +135,12 @@ e o projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 - Geração nativa da waveform agora pode ser cancelada de fato quando a
   reprodução começa ou uma nova geração substitui a anterior.
 
-### Removido
+#### Removido
 
 - Botão de inserção automática de texto na timeline, que não indicava qual
   verso seria adicionado.
 
-### Corrigido
+#### Corrigido
 
 - Menu de criação da vault agora fecha ao clicar fora dele.
 - Botão para adicionar o próximo verso permanece visível no WebKit ao iniciar
@@ -75,7 +148,20 @@ e o projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ## [0.1.2] - 2026-10-29
 
-### Corrigido
+### English
+
+#### Fixed
+
+- Automatic audio recovery when the initial project opening or source loading
+  encounters a transient failure.
+- Preservation of media URLs still in use by the player during rapid project
+  switches or reload attempts.
+- Native waveform generation and caching for MP3, FLAC, WAV, and OGG audio,
+  with a Web Audio API fallback in the development environment.
+
+### Português
+
+#### Corrigido
 
 - Recuperação automática do áudio quando a abertura inicial do projeto ou o
   carregamento da fonte sofre uma falha transitória.
@@ -86,21 +172,54 @@ e o projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ## [0.1.1] - 2026-10-29
 
-### Adicionado
+### English
+
+#### Added
+
+- Portuguese and English interfaces, with a language selector and locally
+  persisted preference.
+- Localization of validation messages, dialogs, timeline controls, and SRT
+  export.
+
+#### Changed
+
+- The release was consolidated into two artifacts: the AppImage and its
+  corresponding source archive.
+
+### Português
+
+#### Adicionado
 
 - Interface em português e inglês, com seletor de idioma e preferência
   persistida localmente.
 - Localização das mensagens de validação, diálogos, controles da timeline e
   exportação SRT.
 
-### Alterado
+#### Alterado
 
 - Release consolidada em dois artefatos: AppImage e arquivo de código-fonte
   correspondente.
 
 ## [0.1.0] - 2026-10-28
 
-### Adicionado
+### English
+
+#### Added
+
+- First public release of the ZYYK Verse desktop editor.
+- Lyrics import and segmentation by verse and section.
+- Side-by-side editing of source text and translation, with variants and review
+  statuses.
+- Local vault for creating and organizing projects and folders.
+- MP3, FLAC, WAV, or OGG audio association with projects.
+- Timeline with waveform, playhead, zoom, and adjustable cues.
+- Translation synchronization and SRT export.
+- Linux AppImage distribution with corresponding sources and compliance
+  information.
+
+### Português
+
+#### Adicionado
 
 - Primeira versão pública do editor desktop ZYYK Verse.
 - Importação e segmentação de letras por versos e seções.
@@ -113,7 +232,7 @@ e o projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 - Distribuição Linux em AppImage com fontes correspondentes e informações de
   conformidade.
 
-[Não lançado]: https://github.com/alissonlima086/zyyk-verse/compare/v0.1.4...HEAD
+[Unreleased]: https://github.com/alissonlima086/zyyk-verse/compare/v0.1.4...HEAD
 [0.1.4]: https://github.com/alissonlima086/zyyk-verse/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/alissonlima086/zyyk-verse/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/alissonlima086/zyyk-verse/compare/v0.1.1...v0.1.2
