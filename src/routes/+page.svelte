@@ -14,21 +14,21 @@
   import {
     cueNeighborLimits,
     cueContextAtTime,
+    createSubtitleExport,
     createTimelineTicks,
-    findAvailableCueRange,
     formatClock,
-    moveCueWithinNeighbors,
-    projectToSrt,
     snapTimelineMicroseconds,
     sortedCues,
+    type SubtitleFormat,
   } from '#lib/domain/sync.ts';
   import {
     chooseAudioFile,
+    chooseExportPath,
     chooseVaultFolder,
+    cancelProjectWaveform,
     createVaultFolder,
     createVaultProject,
     deleteVaultEntry,
-    exportTextFile,
     generateProjectWaveform,
     importProjectAudio,
     listVault,
@@ -40,10 +40,11 @@
     resolveProjectAudio,
     saveWaveformCache,
     saveProject,
+    writeExportFile,
   } from '#lib/services/projectBackend.ts';
   import { decodeWaveform } from '#lib/services/waveform.ts';
   import { normalizeLocale, supportedLocales, translate, type Locale, type TranslationParams } from '#lib/i18n.ts';
-  import { insertVaultEntry, moveVaultEntryInTree, removeVaultEntry, renameVaultEntryInTree } from '#lib/domain/vault.ts';
+  import { insertVaultEntry, moveVaultEntryInTree, removeVaultEntry, renameVaultEntryInTree, vaultCreatePlacement } from '#lib/domain/vault.ts';
   import {
     createHistoryEntry,
     restoreHistoryEntry,
@@ -72,6 +73,11 @@
   let vaultOpen = $state(true);
   let detailsOpen = $state(false);
   let showImport = $state(false);
+  let showExport = $state(false);
+  let exportFormat = $state<SubtitleFormat>('srt');
+  let exportPath = $state('');
+  let exportFailure = $state('');
+  let exporting = $state(false);
   let importText = $state('');
   let importTitle = $state(t('newSong'));
   let importError = $state('');
@@ -137,10 +143,16 @@
     grabOffsetUs?: number;
     pointerStartX?: number;
     started?: boolean;
+    timelineLeft: number;
+    timelineWidth: number;
+    snapTargets: number[];
+    minimumStartUs: number;
+    maximumEndUs: number;
   } | null = null;
   let scrubbingPlayhead = $state(false);
   let snapGuideUs = $state<number | null>(null);
   let lastAutoScrolledCueId: string | null = null;
+  let lastResizedPlayheadGroupId: string | null = null;
 
   const completedCount = $derived(project.translations.filter((unit) => unit.status === 'completed').length);
   const canUndo = $derived(undoStack.length > 0);
@@ -184,6 +196,21 @@
     const parsed = parseLyricsLocally(importText);
     return { lineCount: parsed.lineCount, sectionCount: parsed.sectionCount };
   });
+  const exportSummary = $derived.by(() => {
+    if (!showExport) return { result: null, error: '' };
+    try {
+      return {
+        result: createSubtitleExport(project, syncRole, exportFormat, {
+          emptyTrack: t('emptySyncTrack'),
+          invalidCue: t('invalidCue'),
+        }),
+        error: '',
+      };
+    } catch (error) {
+      return { result: null, error: String(error instanceof Error ? error.message : error) };
+    }
+  });
+  const exportPreview = $derived(exportSummary.result?.contents.slice(0, 1_600) ?? '');
   const selectedGroup = $derived(project.alignmentGroups.find((group) => group.id === selectedGroupId) ?? null);
   const selectedUnit = $derived(translationFor(selectedGroup));
   const activeTrack = $derived(project.syncTracks?.find((track) => track.role === syncRole) ?? null);
@@ -191,6 +218,10 @@
   const playheadContext = $derived.by(() => {
     return cueContextAtTime(activeCuesSorted, currentTime);
   });
+  const playheadCurrentGroupId = $derived(groupForCue(playheadContext.current)?.id ?? null);
+  const playheadPreviousGroupId = $derived(groupForCue(playheadContext.previous)?.id ?? null);
+  const playheadFocusCueId = $derived(playheadContext.current?.id ?? playheadContext.previous?.id ?? null);
+  const playheadFocusGroupId = $derived(playheadCurrentGroupId ?? playheadPreviousGroupId);
   const timelineTicks = $derived.by(() => createTimelineTicks(audioDuration, timelineZoom));
   const waveformPath = $derived.by(() => {
     if (!waveformPeaks.length) return '';
@@ -212,6 +243,7 @@
     visit(vaultEntries, 0);
     return result;
   });
+  const createPlacement = $derived(vaultCreatePlacement(flatVaultEntries, selectedFolderPath));
 
   function vaultEntryMatches(entry: VaultEntry, query: string): boolean {
     return entry.name.toLowerCase().includes(query)
@@ -220,17 +252,16 @@
 
   $effect(() => {
     if (!audioPlaying) return;
-    const focusCue = playheadContext.current ?? playheadContext.previous;
-    if (!focusCue) return;
-    if (focusCue.id === lastAutoScrolledCueId) return;
-    lastAutoScrolledCueId = focusCue.id;
-    const group = groupForCue(focusCue);
-    if (!group) return;
+    const focusCueId = playheadFocusCueId;
+    const groupId = playheadFocusGroupId;
+    if (!focusCueId || !groupId) return;
+    if (focusCueId === lastAutoScrolledCueId) return;
+    lastAutoScrolledCueId = focusCueId;
     requestAnimationFrame(() => {
       const scroller = document.querySelector<HTMLElement>('.editor-scroll');
       if (!scroller) return;
       const rows = Array.from(scroller.querySelectorAll<HTMLElement>('.lyric-row'));
-      const activeIndex = rows.findIndex((row) => row.dataset.groupId === group.id);
+      const activeIndex = rows.findIndex((row) => row.dataset.groupId === groupId);
       if (activeIndex < 0) return;
       const activeRow = rows[activeIndex];
       const bufferedRow = rows[Math.min(rows.length - 1, activeIndex + 2)];
@@ -246,12 +277,20 @@
   });
 
   $effect(() => {
-    // Recalcula a altura quando o destaque muda a tipografia, quando o zoom
-    // muda ou quando uma nova estrutura de linhas é renderizada.
-    playheadContext.current?.id;
+    // Zoom e mudanças estruturais podem alterar todas as quebras de linha.
     editorZoom;
     project.alignmentGroups.length;
-    requestAnimationFrame(resizeEditorTextareas);
+    scheduleEditorTextareaResize();
+  });
+
+  $effect(() => {
+    // O destaque muda o peso da fonte. Ajusta apenas a linha que entrou e a
+    // que saiu do playhead, e somente quando o grupo realmente muda.
+    const currentGroupId = playheadCurrentGroupId;
+    if (currentGroupId === lastResizedPlayheadGroupId) return;
+    scheduleGroupTextareaResize(lastResizedPlayheadGroupId);
+    scheduleGroupTextareaResize(currentGroupId);
+    lastResizedPlayheadGroupId = currentGroupId;
   });
 
   function resizeTextarea(textarea: HTMLTextAreaElement) {
@@ -269,8 +308,16 @@
     });
   }
 
-  function resizeEditorTextareas() {
-    document.querySelectorAll<HTMLTextAreaElement>('.lyric-row textarea').forEach(resizeTextarea);
+  function scheduleEditorTextareaResize() {
+    document.querySelectorAll<HTMLTextAreaElement>('.lyric-row textarea').forEach(scheduleTextareaResize);
+  }
+
+  function scheduleGroupTextareaResize(groupId: string | null) {
+    if (!groupId) return;
+    document.querySelectorAll<HTMLElement>('.lyric-row').forEach((row) => {
+      if (row.dataset.groupId !== groupId) return;
+      row.querySelectorAll<HTMLTextAreaElement>('textarea').forEach(scheduleTextareaResize);
+    });
   }
 
   function sourceFor(id: string): SourceSegment | null {
@@ -306,10 +353,6 @@
     return role === 'source'
       ? group.sourceSegmentIds.filter((id) => sourceFor(id)?.kind === 'line')
       : unit ? [translationTargetId(unit, translationLineIndex)].filter(Boolean) : [];
-  }
-
-  function syncGroups(role = syncRole): AlignmentGroup[] {
-    return project.alignmentGroups.filter((group) => targetIdsFor(group, role).length > 0);
   }
 
   function trackFor(role: SyncRole, create = false): SyncTrack | null {
@@ -775,6 +818,7 @@
   function beginCreate(mode: 'project' | 'folder', parent?: string | null) {
     if (parent !== undefined) selectedFolderPath = parent;
     if (parent && !expandedFolderPaths.includes(parent)) expandedFolderPaths = [...expandedFolderPaths, parent];
+    vaultSearch = '';
     createMode = mode;
     createName = mode === 'project' ? t('newSong') : '';
     newMenuOpen = false;
@@ -1048,6 +1092,7 @@
     waveformAbort?.abort();
     waveformAbort = null;
     waveformGeneration += 1;
+    void cancelProjectWaveform().catch(() => undefined);
     waveformLoading = false;
     waveformPending = false;
   }
@@ -1186,14 +1231,17 @@
     seekTo((currentFrame + direction) / TIMELINE_FPS);
   }
 
-  function timelinePositionAt(clientX: number): number {
+  function timelinePositionAt(clientX: number, left?: number, width?: number): number {
     if (!timelineContent || !audioDuration) return 0;
-    const bounds = timelineContent.getBoundingClientRect();
-    return Math.max(0, Math.min(audioDuration, ((clientX - bounds.left) / bounds.width) * audioDuration));
+    const bounds = left === undefined || width === undefined ? timelineContent.getBoundingClientRect() : null;
+    const contentLeft = left ?? bounds?.left ?? 0;
+    const contentWidth = width ?? bounds?.width ?? 0;
+    if (contentWidth <= 0) return 0;
+    return Math.max(0, Math.min(audioDuration, ((clientX - contentLeft) / contentWidth) * audioDuration));
   }
 
-  function snapTimelinePosition(seconds: number, targetsUs: number[]) {
-    const width = timelineContent?.getBoundingClientRect().width ?? 0;
+  function snapTimelinePosition(seconds: number, targetsUs: number[], measuredWidth?: number) {
+    const width = measuredWidth ?? timelineContent?.getBoundingClientRect().width ?? 0;
     return snapTimelineMicroseconds(
       seconds * 1_000_000,
       audioDuration * 1_000_000,
@@ -1299,68 +1347,39 @@
     touch();
   }
 
-  function addTextAtPlayhead() {
-    if (!audioDuration) return notify(t('addAudioBeforeTimelineText'));
-    const items = syncGroups().flatMap((group) => {
-      const unit = translationFor(group);
-      return translationLines(unit).map((_, lineIndex) => ({ group, lineIndex }));
-    });
-    if (!items.length) return notify(t('importBeforeTimelineText'));
-    const track = trackFor(syncRole, true) as SyncTrack;
-    const context = cueContextAtTime(sortedCues(track.cues), currentTime);
-    const anchorGroup = context.current ? groupForCue(context.current) : context.previous ? groupForCue(context.previous) : null;
-    const anchorCue = context.current ?? context.previous;
-    const anchorIndex = anchorGroup && anchorCue
-      ? items.findIndex((item) => item.group.id === anchorGroup.id && cueForTranslationLine(item.group, item.lineIndex)?.id === anchorCue.id)
-      : -1;
-    const untimed = (item: { group: AlignmentGroup; lineIndex: number }) => !cueForTranslationLine(item.group, item.lineIndex);
-    const item = items.slice(anchorIndex + 1).find(untimed) ?? items.find(untimed);
-    if (!item) return notify(t('allTextsOnTimeline'));
-    const { group, lineIndex } = item;
-    const unit = translationFor(group);
-    if (unit) ensureTranslationLineIds(unit);
-
-    const range = findAvailableCueRange(
-      track.cues,
-      Math.round(currentTime * 1_000_000),
-      Math.round(audioDuration * 1_000_000),
-      1_000_000,
-      FRAME_US,
-    );
-    if (!range) return notify(t('noTimelineSpace'));
-
-    remember(t('timelineTextAddition'));
-    track.cues.push({
-      id: newId(),
-      targetIds: targetIdsFor(group, syncRole, lineIndex),
-      startUs: range.startUs,
-      endUs: range.endUs,
-      textMode: 'selected-variant',
-    });
-    track.cues.sort((left, right) => left.startUs - right.startUs);
-    selectedGroupId = group.id;
-    touch();
-    seekTo(range.startUs / 1_000_000);
-  }
-
   function startCueDrag(event: PointerEvent, cue: SyncCue, boundary: 'start' | 'end') {
     event.preventDefault();
     event.stopPropagation();
     remember(t(boundary === 'start' ? 'cueStartAdjustment' : 'cueEndAdjustment'));
-    draggingCue = { cue, boundary };
+    const bounds = timelineContent.getBoundingClientRect();
+    const limits = cueNeighborLimits(activeTrack?.cues ?? [], cue, Math.round(audioDuration * 1_000_000));
+    draggingCue = {
+      cue,
+      boundary,
+      timelineLeft: bounds.left,
+      timelineWidth: bounds.width,
+      snapTargets: cueSnapTargets(cue),
+      ...limits,
+    };
   }
 
   function startCueMove(event: PointerEvent, cue: SyncCue) {
     if (event.button !== 0 || (event.target as Element | null)?.closest('.cue-handle')) return;
     event.preventDefault();
     event.stopPropagation();
-    const pointerUs = Math.round(timelinePositionAt(event.clientX) * 1_000_000);
+    const bounds = timelineContent.getBoundingClientRect();
+    const pointerUs = Math.round(timelinePositionAt(event.clientX, bounds.left, bounds.width) * 1_000_000);
+    const limits = cueNeighborLimits(activeTrack?.cues ?? [], cue, Math.round(audioDuration * 1_000_000));
     draggingCue = {
       cue,
       boundary: 'move',
       grabOffsetUs: pointerUs - cue.startUs,
       pointerStartX: event.clientX,
       started: false,
+      timelineLeft: bounds.left,
+      timelineWidth: bounds.width,
+      snapTargets: cueSnapTargets(cue),
+      ...limits,
     };
     selectedGroupId = groupForCue(cue)?.id ?? selectedGroupId;
   }
@@ -1372,7 +1391,7 @@
       return;
     }
     if (!draggingCue) return;
-    const position = timelinePositionAt(event.clientX);
+    const position = timelinePositionAt(event.clientX, draggingCue.timelineLeft, draggingCue.timelineWidth);
     if (draggingCue.boundary === 'move') {
       if (!draggingCue.started) {
         if (Math.abs(event.clientX - (draggingCue.pointerStartX ?? event.clientX)) < 3) return;
@@ -1382,34 +1401,26 @@
       const desiredStartUs = Math.round(position * 1_000_000) - (draggingCue.grabOffsetUs ?? 0);
       const snapped = snapTimelinePosition(desiredStartUs / 1_000_000, [
         Math.round(currentTime * 1_000_000),
-        ...cueSnapTargets(draggingCue.cue),
-      ]);
-      const moved = moveCueWithinNeighbors(
-        activeTrack?.cues ?? [],
-        draggingCue.cue,
-        snapped.microseconds,
-        Math.round(audioDuration * 1_000_000),
-      );
-      draggingCue.cue.startUs = moved.startUs;
-      draggingCue.cue.endUs = moved.endUs;
+        ...draggingCue.snapTargets,
+      ], draggingCue.timelineWidth);
+      const lengthUs = draggingCue.cue.endUs - draggingCue.cue.startUs;
+      const maximumStartUs = Math.max(draggingCue.minimumStartUs, draggingCue.maximumEndUs - lengthUs);
+      const startUs = Math.max(draggingCue.minimumStartUs, Math.min(maximumStartUs, snapped.microseconds));
+      draggingCue.cue.startUs = startUs;
+      draggingCue.cue.endUs = startUs + lengthUs;
       snapGuideUs = snapped.magneticTargetUs;
       return;
     }
     const snapped = snapTimelinePosition(position, [
       Math.round(currentTime * 1_000_000),
-      ...cueSnapTargets(draggingCue.cue),
-    ]);
+      ...draggingCue.snapTargets,
+    ], draggingCue.timelineWidth);
     snapGuideUs = snapped.magneticTargetUs;
-    const limits = cueNeighborLimits(
-      activeTrack?.cues ?? [],
-      draggingCue.cue,
-      Math.round(audioDuration * 1_000_000),
-    );
     if (draggingCue.boundary === 'start') {
-      draggingCue.cue.startUs = Math.max(limits.minimumStartUs, Math.min(snapped.microseconds, draggingCue.cue.endUs - FRAME_US));
+      draggingCue.cue.startUs = Math.max(draggingCue.minimumStartUs, Math.min(snapped.microseconds, draggingCue.cue.endUs - FRAME_US));
     } else {
       draggingCue.cue.endUs = Math.min(
-        limits.maximumEndUs,
+        draggingCue.maximumEndUs,
         Math.max(snapped.microseconds, draggingCue.cue.startUs + FRAME_US),
       );
     }
@@ -1426,28 +1437,47 @@
     snapGuideUs = null;
   }
 
-  async function exportCurrentTrack() {
+  function exportBaseName(): string {
+    return project.metadata.title.trim().replace(/[^\p{L}\p{N}._-]+/gu, '-').replace(/^-|-$/g, '') || 'legenda';
+  }
+
+  function openExportModal() {
+    exportFormat = 'srt';
+    exportPath = '';
+    exportFailure = '';
+    showExport = true;
+  }
+
+  function changeExportFormat(format: SubtitleFormat) {
+    exportFormat = format;
+    exportPath = '';
+    exportFailure = '';
+  }
+
+  async function selectExportPath() {
+    exportFailure = '';
     try {
-      const contents = projectToSrt(project, syncRole, {
-        emptyTrack: t('emptySyncTrack'),
-        invalidCue: t('invalidCue'),
-        missingTranslation: t('missingTranslation'),
-        missingOriginal: t('missingOriginal'),
-      });
-      const base = project.metadata.title.trim().replace(/[^\p{L}\p{N}._-]+/gu, '-').replace(/^-|-$/g, '') || 'legenda';
-      try {
-        const saved = await exportTextFile(`${base}-traducao.srt`, contents);
-        if (saved) notify(t('srtExportedWithTiming'));
-      } catch {
-        const link = document.createElement('a');
-        link.href = URL.createObjectURL(new Blob([contents], { type: 'application/x-subrip;charset=utf-8' }));
-        link.download = `${base}.srt`;
-        link.click();
-        URL.revokeObjectURL(link.href);
-        notify(t('srtExported'));
-      }
+      const selected = await chooseExportPath(`${exportBaseName()}-traducao.${exportFormat}`, exportFormat);
+      if (!selected) return;
+      exportPath = selected.toLowerCase().endsWith(`.${exportFormat}`) ? selected : `${selected}.${exportFormat}`;
     } catch (error) {
-      notify(String(error instanceof Error ? error.message : error));
+      exportFailure = t('exportFailed', { error: String(error) });
+    }
+  }
+
+  async function confirmExport() {
+    const result = exportSummary.result;
+    if (!result || !result.exportedCueCount || !exportPath || exporting) return;
+    exporting = true;
+    exportFailure = '';
+    try {
+      await writeExportFile(exportPath, result.contents);
+      showExport = false;
+      notify(t('exportCompleted', { format: exportFormat.toUpperCase() }));
+    } catch (error) {
+      exportFailure = t('exportFailed', { error: String(error) });
+    } finally {
+      exporting = false;
     }
   }
 
@@ -1508,10 +1538,12 @@
     };
     window.addEventListener('pointermove', handlePointerMove);
     window.addEventListener('pointerup', handlePointerUp);
-    const closeContextMenu = (event: PointerEvent) => {
-      if (!(event.target as Element | null)?.closest('.vault-context-menu')) contextMenu = null;
+    const closeFloatingMenus = (event: PointerEvent) => {
+      const target = event.target as Element | null;
+      if (!target?.closest('.vault-context-menu')) contextMenu = null;
+      if (!target?.closest('.vault-create')) newMenuOpen = false;
     };
-    window.addEventListener('pointerdown', closeContextMenu);
+    window.addEventListener('pointerdown', closeFloatingMenus);
     let unlistenDrop: (() => void) | undefined;
     void (async () => {
       const storedVault = localStorage.getItem('zyykVerse.vaultPath');
@@ -1549,7 +1581,7 @@
       window.removeEventListener('keydown', handleKeydown);
       window.removeEventListener('pointermove', handlePointerMove);
       window.removeEventListener('pointerup', handlePointerUp);
-      window.removeEventListener('pointerdown', closeContextMenu);
+      window.removeEventListener('pointerdown', closeFloatingMenus);
       unlistenDrop?.();
       if (autosaveTimer) clearTimeout(autosaveTimer);
       cancelAudioRetry();
@@ -1582,6 +1614,13 @@
 
 <svelte:head><title>{project.metadata.title} — ZYYK Verse</title></svelte:head>
 
+{#snippet vaultCreateInput(depth: number)}
+  <div class="vault-create-input" style={`margin-left:${depth * 15}px`}>
+    <input bind:value={createName} placeholder={createMode === 'project' ? t('projectName') : t('folderName')} onkeydown={(event) => { if (event.key === 'Enter') void confirmCreate(); if (event.key === 'Escape') createMode = null; }} onblur={() => { if (!createName.trim()) createMode = null; }} />
+    <button onclick={() => createMode = null} aria-label={t('cancel')}>×</button>
+  </div>
+{/snippet}
+
 <main class="app-shell" class:vault-closed={!vaultOpen} class:details-open={detailsOpen}>
   <header class="topbar">
     <div class="brand">
@@ -1604,7 +1643,6 @@
           {#each supportedLocales as option}<option value={option}>{translate(option, 'languageName')}</option>{/each}
         </select>
       </label>
-      <button class="button quiet" class:active={detailsOpen} onclick={() => detailsOpen = !detailsOpen}>{t('details')}</button>
       <button class="button quiet" onclick={() => saveCurrent(false)} disabled={saving}>{t('saveNow')}</button>
     </div>
   </header>
@@ -1614,9 +1652,9 @@
       <div class="panel-title"><strong>{vaultPath?.split('/').at(-1) ?? 'Vault'}</strong><div class="vault-create"><button class="icon-button" onclick={() => newMenuOpen = !newMenuOpen} title={t('createInVault')} aria-label={t('createFileOrFolder')}>＋</button>{#if newMenuOpen}<div class="vault-new-menu"><button onclick={() => beginCreate('project')}>{t('newProject')}</button><button onclick={() => beginCreate('folder')}>{t('newFolder')}</button></div>{/if}</div></div>
       <div class="vault-search"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.25"/><path d="m12.5 12.5 4 4"/></svg><input bind:value={vaultSearch} aria-label={t('searchVault')} placeholder={t('search')} /></div>
       <nav class="file-tree" class:dragging={vaultDragActive} class:drop-target={vaultDropTarget === vaultPath} aria-label={t('vaultFiles')} data-vault-drop={vaultPath ?? undefined} oncontextmenu={(event) => openVaultContextMenu(event, null)}>
-        {#if createMode}<div class="vault-create-input"><input bind:value={createName} placeholder={createMode === 'project' ? t('projectName') : t('folderName')} onkeydown={(event) => { if (event.key === 'Enter') void confirmCreate(); if (event.key === 'Escape') createMode = null; }} onblur={() => { if (!createName.trim()) createMode = null; }} /><button onclick={() => createMode = null} aria-label={t('cancel')}>×</button></div>{/if}
-        {#if flatVaultEntries.length === 0}<p class="vault-empty">{t('emptyVault')}</p>{/if}
-        {#each flatVaultEntries as item (item.entry.path)}
+        {#if createMode && createPlacement.index === 0}{@render vaultCreateInput(createPlacement.depth)}{/if}
+        {#if flatVaultEntries.length === 0 && !createMode}<p class="vault-empty">{t('emptyVault')}</p>{/if}
+        {#each flatVaultEntries as item, itemIndex (item.entry.path)}
           {#if renameTarget?.path === item.entry.path}
             <div class="tree-row vault-rename-row">
               <span class="tree-guides" style={`width:${item.depth * 15}px`}></span>
@@ -1628,19 +1666,21 @@
           {:else}
             <button class="tree-row project-file" class:selected={filePath === item.entry.path} class:drag-source={draggedVaultPath === item.entry.path && vaultDragActive} onpointerdown={(event) => beginVaultDrag(event, item.entry.path)} oncontextmenu={(event) => openVaultContextMenu(event, item.entry)} onclick={() => { if (!suppressVaultClick) void openVaultFile(item.entry.path); }}><span class="tree-guides" style={`width:${item.depth * 15}px`}></span><span class="tree-spacer"></span><span class="tree-name">{item.entry.name}</span>{#if filePath === item.entry.path}<i class:dirty></i>{/if}</button>
           {/if}
+          {#if createMode && createPlacement.index === itemIndex + 1}{@render vaultCreateInput(createPlacement.depth)}{/if}
         {/each}
       </nav>
       <button class="vault-action" onclick={selectVault}>{t('changeVaultFolder')}</button>
     </aside>
   {/if}
 
-  <section class="editor-panel" style={`--editor-zoom:${editorZoom}`}>
+  <section class="editor-panel" class:has-lyrics={project.alignmentGroups.length > 0} style={`--editor-zoom:${editorZoom}`}>
     <header class="document-header">
       <div class="title-group">
         <input bind:value={project.metadata.title} onfocus={() => beginEdit('title', t('titleEdit'))} onbeforeinput={() => beginEdit('title', t('titleEdit'))} onblur={endEdit} oninput={touch} aria-label={t('songTitle')} />
         {#if project.metadata.artist || project.metadata.album}<span>{[project.metadata.artist, project.metadata.album].filter(Boolean).join(' · ')}</span>{/if}
       </div>
       <div class="progress"><span>{t('completedProgress', { completed: completedCount, total: project.translations.length })}</span><strong>{progress}%</strong><i><b style:width={`${progress}%`}></b></i></div>
+      <button class="button quiet document-details-button" class:active={detailsOpen} onclick={() => detailsOpen = !detailsOpen}>{t('details')}</button>
     </header>
 
     {#if project.alignmentGroups.length === 0}
@@ -1648,7 +1688,10 @@
         <div class="empty-icon">≡</div>
         <h1>{t('startWithOriginal')}</h1>
         <p>{t('emptyStateDescription')}</p>
-        <button class="button primary" onclick={() => { importTitle = project.metadata.title; showImport = true; }}>{t('pasteFullLyrics')}</button>
+        <div class="empty-actions">
+          <button class="button primary" onclick={() => addLine()}>{t('writeLineByLine')}</button>
+          <button class="button quiet" onclick={() => { importTitle = project.metadata.title; showImport = true; }}>{t('pasteFullLyrics')}</button>
+        </div>
       </div>
     {:else}
       <div class="column-headings">
@@ -1672,7 +1715,7 @@
               <button onclick={() => deleteGroup(group)} aria-label={t('deleteSection')}>×</button>
             </div>
           {:else if unit}
-            <article class="lyric-row" class:selected={selectedGroupId === group.id} class:playhead-current={groupForCue(playheadContext.current)?.id === group.id} class:playhead-previous={groupForCue(playheadContext.previous)?.id === group.id} data-status={unit.status} data-group-id={group.id}>
+            <article class="lyric-row" class:selected={selectedGroupId === group.id} class:playhead-current={playheadCurrentGroupId === group.id} class:playhead-previous={playheadPreviousGroupId === group.id} data-status={unit.status} data-group-id={group.id}>
               <div class="line-gutter">
                 <button onclick={(event) => { event.stopPropagation(); seekToGroup(group); }} title={t('goToTimeline')} aria-label={t('goToLineTimeline', { line: lineNumber(index) })}>{lineNumber(index)}</button>
               </div>
@@ -1772,9 +1815,8 @@
       <button class="transport-play" onclick={togglePlayback} disabled={!audioUrl} aria-label={audioPlaying ? t('pause') : t('play')}>{audioPlaying ? '❚❚' : '▶'}</button>
       <span class="transport-time">{formatClock(currentTime, true)} <i>/</i> {formatClock(audioDuration, true)}</span>
       <span class="frame-hint" title={t('frameHint')}>← 1 {t('frame')} · {TIMELINE_FPS} fps · 1 {t('frame')} →</span>
-      <button class="add-text-button" onclick={addTextAtPlayhead} disabled={!audioUrl || syncGroups().length === 0}>＋ {t('addText')}</button>
       <label class="zoom-control">{t('zoom')} <input type="range" min="1" max="32" step="0.5" bind:value={timelineZoom} /></label>
-      <button class="button quiet" onclick={exportCurrentTrack} disabled={!activeTrack?.cues.length}>{t('exportTranslationSrt')}</button>
+      <button class="button quiet" onclick={openExportModal} disabled={!activeTrack?.cues.length}>{t('exportAction')}</button>
       <button class="button quiet" onclick={() => addAudio()}>{t('addAudio')}</button>
     </div>
     {#if audioError}<div class="audio-error" title={audioError}>{audioError}</div>{/if}
@@ -1840,6 +1882,30 @@
         {#if importError}<div class="error-banner">{importError}</div>{/if}
       </div>
       <footer><button class="button quiet" onclick={() => showImport = false}>{t('cancel')}</button><button class="button primary" onclick={confirmImport} disabled={!importPreview.lineCount || !importTitle.trim()}>{t('createAndOrganize')}</button></footer>
+    </div>
+  </div>
+{/if}
+
+{#if showExport}
+  <div class="modal-backdrop" role="presentation" onclick={(event) => { if (event.target === event.currentTarget && !exporting) showExport = false; }}>
+    <div class="export-modal" role="dialog" aria-modal="true" aria-labelledby="export-title" tabindex="-1">
+      <header><div><span>{t('exportLabel')}</span><h1 id="export-title">{t('exportTitle')}</h1></div><button class="icon-button" onclick={() => showExport = false} disabled={exporting} aria-label={t('close')}>×</button></header>
+      <div class="export-content">
+        <p>{t('exportDescription')}</p>
+        <div class="export-options">
+          <label><span>{t('exportFormat')}</span><select value={exportFormat} onchange={(event) => changeExportFormat(event.currentTarget.value as SubtitleFormat)}><option value="srt">SubRip (.srt)</option><option value="vtt">WebVTT (.vtt)</option><option value="lrc">LRC (.lrc)</option></select></label>
+          <label class="export-path"><span>{t('exportDestination')}</span><div><input value={exportPath} readonly placeholder={t('noPathSelected')} title={exportPath} /><button class="button quiet" onclick={selectExportPath}>{t('choosePath')}</button></div></label>
+        </div>
+        {#if exportSummary.result?.omittedCueCount}
+          <div class="export-warning" role="alert"><strong>{t('incompleteTranslationTitle')}</strong><span>{t('incompleteTranslationWarning', { count: exportSummary.result.omittedCueCount })}</span></div>
+        {/if}
+        {#if exportSummary.result}
+          <div class="export-count">{t('exportCount', { exported: exportSummary.result.exportedCueCount, total: exportSummary.result.totalCueCount })}</div>
+        {/if}
+        <section class="export-preview"><h2>{t('exportPreview')}</h2><pre>{exportPreview || t('noTranslatedCues')}</pre></section>
+        {#if exportSummary.error || exportFailure}<div class="error-banner">{exportFailure || exportSummary.error}</div>{/if}
+      </div>
+      <footer><button class="button quiet" onclick={() => showExport = false} disabled={exporting}>{t('cancel')}</button><button class="button primary" onclick={confirmExport} disabled={exporting || !exportPath || !exportSummary.result?.exportedCueCount}>{exporting ? t('exporting') : t('exportAction')}</button></footer>
     </div>
   </div>
 {/if}
