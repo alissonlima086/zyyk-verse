@@ -19,6 +19,14 @@ e o projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
   multi-architecture build, tag, and GitHub release publication.
 - Resume and dry-run modes for safely recovering interrupted releases and
   previewing the next version without changing the repository.
+- An unsigned Windows x64 NSIS preview workflow to validate the native MSVC
+  build and produce a short-lived test installer on pull requests.
+
+#### Changed
+
+- Interface copy is fully inventoried in the Portuguese and English catalogs,
+  including dialog labels, filenames, examples, fallbacks, and user-facing
+  error states. Automated checks now reject untranslated visible text.
 
 ### Português
 
@@ -30,6 +38,15 @@ e o projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
   GitHub.
 - Modos de retomada e simulação para recuperar lançamentos interrompidos com
   segurança e visualizar a próxima versão sem alterar o repositório.
+- Workflow de preview NSIS Windows x64 sem assinatura para validar o build
+  MSVC nativo e produzir um instalador de teste temporário nos pull requests.
+
+#### Alterado
+
+- Os textos da interface foram completamente inventariados nos catálogos em
+  português e inglês, incluindo diálogos, nomes de arquivo, exemplos,
+  fallbacks e estados de erro visíveis. Verificações automáticas passam a
+  recusar textos visíveis sem tradução.
 
 ## [0.1.4] - 2026-10-29
 
