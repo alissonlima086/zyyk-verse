@@ -41,9 +41,10 @@ function walk(directory) {
 }
 
 function cargoPackages() {
+  const rustTarget = process.env.ZYYK_RUST_TARGET || 'x86_64-unknown-linux-gnu';
   const metadata = JSON.parse(execFileSync('cargo', [
     'metadata', '--manifest-path', join(root, 'src-tauri/Cargo.toml'),
-    '--format-version', '1', '--locked', '--filter-platform', 'x86_64-unknown-linux-gnu',
+    '--format-version', '1', '--locked', '--filter-platform', rustTarget,
   ], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }));
   const packageById = new Map(metadata.packages.map((pkg) => [pkg.id, pkg]));
   const nodeById = new Map(metadata.resolve.nodes.map((node) => [node.id, node]));
@@ -200,10 +201,11 @@ function renderNotices(rust, frontend, native, plugins) {
 
 function renderSourceOffer(frontend, native, cargo) {
   const version = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version;
+  const releaseArchitecture = process.env.ZYYK_RELEASE_ARCH || 'amd64';
   const copyleftFrontend = frontend.filter((pkg) => /(?:MPL|GPL|LGPL)/i.test(pkg.license));
   const sources = new Map(native.map((pkg) => [`${pkg.sourceName}\t${pkg.sourceVersion}`, pkg]));
   return `# Código-fonte correspondente\n\n` +
-    `Este documento corresponde ao ZYYK Verse ${version}. O código-fonte do Verse, os arquivos de build, as configurações da release e as fontes exatas dos componentes copyleft incorporados são distribuídos no arquivo \`ZYYK-Verse-${version}-source.tar.gz\` anexado à mesma release. O arquivo contém manifestos e checksums SHA-256 próprios.\n\n` +
+    `Este documento corresponde ao ZYYK Verse ${version} para ${releaseArchitecture}. O código-fonte do Verse, os arquivos de build, as configurações da release e as fontes exatas dos componentes copyleft incorporados são distribuídos no arquivo \`ZYYK-Verse-${version}-${releaseArchitecture}-source.tar.gz\` anexado à mesma release. O arquivo contém manifestos e checksums SHA-256 próprios.\n\n` +
     `## Crates Rust incorporadas\n\nAs fontes exatas podem ser obtidas pelo Cargo a partir do \`src-tauri/Cargo.lock\` incluído no arquivo-fonte. Componentes: ${cargo.map((pkg) => `${pkg.name} ${pkg.version}`).join(', ')}.\n\n` +
     `## Código JavaScript copyleft\n\n${copyleftFrontend.length ? copyleftFrontend.map((pkg) => `- ${pkg.name} ${pkg.version} (${pkg.license}): \`npm pack ${pkg.name}@${pkg.version}\`.`).join('\n') : 'Nenhum componente JavaScript copyleft foi identificado no bundle.'}\n\n` +
     `## Bibliotecas nativas\n\nAs bibliotecas compartilhadas permanecem separadas dentro do AppImage. Os pacotes-fonte exatos usados pelo ambiente Ubuntu 22.04 são:\n\n` +
