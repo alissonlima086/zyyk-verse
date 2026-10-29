@@ -15,10 +15,12 @@ export async function parseLyrics(text: string, emptyLyricsError = 'Cole ao meno
   return invoke<ParsedLyrics>('parse_lyrics', { text });
 }
 
-export async function chooseAndOpenProject(): Promise<{ project: VerseProject; path: string } | null> {
+export async function chooseAndOpenProject(
+  filterName = 'Projeto ZYYK Verse',
+): Promise<{ project: VerseProject; path: string } | null> {
   if (!inTauri()) return null;
   const { open } = await import('@tauri-apps/plugin-dialog');
-  const path = await open({ multiple: false, filters: [{ name: 'Projeto ZYYK Verse', extensions: ['zyykverse'] }] });
+  const path = await open({ multiple: false, filters: [{ name: filterName, extensions: ['zyykverse'] }] });
   if (!path || Array.isArray(path)) return null;
   const { invoke } = await import('@tauri-apps/api/core');
   const project = await invoke<VerseProject>('open_project', { path });
@@ -159,13 +161,17 @@ export async function writeExportFile(path: string, contents: string): Promise<v
 export async function saveProject(
   project: VerseProject,
   currentPath: string | null,
+  labels: { projectFilter: string; untitledFileName: string } = {
+    projectFilter: 'Projeto ZYYK Verse',
+    untitledFileName: 'sem-titulo',
+  },
 ): Promise<{ project: VerseProject; path: string } | null> {
   if (!inTauri()) {
     const blob = new Blob([JSON.stringify(project, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
     anchor.href = url;
-    anchor.download = `${safeFileName(project.metadata.title)}.zyykverse`;
+    anchor.download = `${safeFileName(project.metadata.title, labels.untitledFileName)}.zyykverse`;
     anchor.click();
     URL.revokeObjectURL(url);
     return { project, path: anchor.download };
@@ -174,8 +180,8 @@ export async function saveProject(
   if (!path) {
     const { save } = await import('@tauri-apps/plugin-dialog');
     path = await save({
-      defaultPath: `${safeFileName(project.metadata.title)}.zyykverse`,
-      filters: [{ name: 'Projeto ZYYK Verse', extensions: ['zyykverse'] }],
+      defaultPath: `${safeFileName(project.metadata.title, labels.untitledFileName)}.zyykverse`,
+      filters: [{ name: labels.projectFilter, extensions: ['zyykverse'] }],
     });
   }
   if (!path) return null;
@@ -184,7 +190,7 @@ export async function saveProject(
   return { project: saved, path };
 }
 
-function safeFileName(value: string): string {
+function safeFileName(value: string, fallback: string): string {
   const normalized = value.trim().replace(/[\\/:*?"<>|]+/g, '-');
-  return normalized || 'sem-titulo';
+  return normalized || fallback;
 }
