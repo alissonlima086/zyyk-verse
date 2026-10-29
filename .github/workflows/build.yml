@@ -257,7 +257,8 @@ jobs:
         run: |
           version="$(node --print "require('./package.json').version")"
           bash .github/compliance/collect-copyleft-sources.sh \
-            ".compliance/ZYYK-Verse-${version}-${ZYYK_RELEASE_ARCH}-source.tar.gz"
+            ".compliance/ZYYK-Verse-${version}-${ZYYK_RELEASE_ARCH}-third-party-copyleft-sources.tar.gz" \
+            "$ZYYK_RELEASE_ARCH"
 
       - name: Reempacotar AppImage com documentação auditada
         run: npm run tauri -- bundle --bundles appimage --ci
@@ -288,7 +289,7 @@ jobs:
         run: |
           version="$(node --print "require('./package.json').version")"
           bundle_dir="src-tauri/target/release/bundle/appimage"
-          cp ".compliance/ZYYK-Verse-${version}-${ZYYK_RELEASE_ARCH}-source.tar.gz" "$bundle_dir/"
+          cp ".compliance/ZYYK-Verse-${version}-${ZYYK_RELEASE_ARCH}-third-party-copyleft-sources.tar.gz" "$bundle_dir/"
           cp .compliance/THIRD_PARTY_NOTICES.md "$bundle_dir/"
           cp .compliance/SOURCE_OFFER.md "$bundle_dir/"
           cp .compliance/SBOM.spdx.json "$bundle_dir/"

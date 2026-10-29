@@ -90,6 +90,15 @@ export async function resolveProjectAudio(projectPath: string, relativePath: str
   return invoke<string>('resolve_project_audio', { projectPath, relativePath });
 }
 
+export async function decodeProjectAudio(projectPath: string, relativePath: string): Promise<ArrayBuffer> {
+  const { invoke } = await import('@tauri-apps/api/core');
+  const response = await invoke<ArrayBuffer | Uint8Array>('decode_project_audio', { projectPath, relativePath });
+  const bytes = response instanceof Uint8Array ? response : new Uint8Array(response);
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  return copy.buffer;
+}
+
 export async function loadWaveformCache(projectPath: string, relativePath: string): Promise<number[] | null> {
   if (!inTauri()) return null;
   const { invoke } = await import('@tauri-apps/api/core');
