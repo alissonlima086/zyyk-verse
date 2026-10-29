@@ -36,12 +36,14 @@ export function trimHistory(entries: ProjectHistoryEntry[]): void {
 }
 
 export function sameProjectContent(left: VerseProject, right: VerseProject): boolean {
-  const normalize = (project: VerseProject) => {
-    const snapshot = cloneProject(project);
-    snapshot.revision = 0;
-    snapshot.metadata.updatedAt = '';
-    return snapshot;
-  };
+  // A comparação não precisa materializar dois clones completos. Os spreads
+  // rasos substituem apenas os campos de persistência ignorados e deixam o
+  // stringify percorrer o conteúdo uma única vez por projeto.
+  const normalize = (project: VerseProject): VerseProject => ({
+    ...project,
+    revision: 0,
+    metadata: { ...project.metadata, updatedAt: '' },
+  });
   return JSON.stringify(normalize(left)) === JSON.stringify(normalize(right));
 }
 
