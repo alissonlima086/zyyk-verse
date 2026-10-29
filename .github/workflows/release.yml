@@ -115,12 +115,26 @@ jobs:
           fi
           shopt -s nullglob
           applications=(release-assets/zyyk-verse-linux-*/*.AppImage)
-          sources=(release-assets/zyyk-verse-linux-*/ZYYK-Verse-*-source.tar.gz)
-          if [[ "${#applications[@]}" -ne 2 || "${#sources[@]}" -ne 2 ]]; then
-            echo "Esperados dois AppImages e dois arquivos de código-fonte; encontrados ${#applications[@]} e ${#sources[@]}." >&2
+          architecture_sources=(release-assets/zyyk-verse-linux-*/ZYYK-Verse-*-third-party-copyleft-sources.tar.gz)
+          if [[ "${#applications[@]}" -ne 2 || "${#architecture_sources[@]}" -ne 2 ]]; then
+            echo "Esperados dois AppImages e dois pacotes copyleft intermediários; encontrados ${#applications[@]} e ${#architecture_sources[@]}." >&2
             exit 1
           fi
-          gh release create "$GITHUB_REF_NAME" "${applications[@]}" "${sources[@]}" \
+          version="${GITHUB_REF_NAME#v}"
+          consolidated="$RUNNER_TEMP/ZYYK-Verse-${version}-third-party-copyleft-sources.tar.gz"
+          release_notes="$RUNNER_TEMP/release-notes.md"
+          bash .github/compliance/consolidate-copyleft-sources.sh \
+            "$consolidated" "${architecture_sources[@]}"
+          awk -v version="$version" '
+            $0 ~ "^## \\[" version "\\]" { capture = 1; next }
+            capture && /^## \[/ { exit }
+            capture { print }
+          ' CHANGELOG.md > "$release_notes"
+          if [[ ! -s "$release_notes" ]]; then
+            echo "Notas da versão ${version} não encontradas no CHANGELOG.md." >&2
+            exit 1
+          fi
+          gh release create "$GITHUB_REF_NAME" "${applications[@]}" "$consolidated" \
             --verify-tag \
-            --generate-notes \
+            --notes-file "$release_notes" \
             --title "ZYYK Verse ${GITHUB_REF_NAME#v}"

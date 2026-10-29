@@ -172,6 +172,19 @@ async fn generate_waveform(
 }
 
 #[tauri::command]
+async fn decode_project_audio(
+    project_path: String,
+    relative_path: String,
+) -> Result<tauri::ipc::Response, String> {
+    let bytes = blocking(move || {
+        let audio = vault::resolve_audio(Path::new(&project_path), Path::new(&relative_path))?;
+        waveform::decode_to_wav(Path::new(&audio))
+    })
+    .await?;
+    Ok(tauri::ipc::Response::new(bytes))
+}
+
+#[tauri::command]
 fn cancel_waveform(state: tauri::State<'_, WaveformState>) {
     state.generation.fetch_add(1, Ordering::AcqRel);
 }
@@ -244,6 +257,7 @@ pub fn run() {
             delete_vault_entry,
             import_project_audio,
             resolve_project_audio,
+            decode_project_audio,
             generate_waveform,
             cancel_waveform,
             load_waveform_cache,
