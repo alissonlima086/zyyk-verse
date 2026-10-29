@@ -25,11 +25,10 @@
     chooseAudioFile,
     chooseExportPath,
     chooseVaultFolder,
-    cancelProjectWaveform,
     createVaultFolder,
     createVaultProject,
+    decodeProjectAudio,
     deleteVaultEntry,
-    generateProjectWaveform,
     importProjectAudio,
     listVault,
     loadWaveformCache,
@@ -42,7 +41,7 @@
     saveProject,
     writeExportFile,
   } from '#lib/services/projectBackend.ts';
-  import { decodeWaveform } from '#lib/services/waveform.ts';
+  import { audioEngine } from '#lib/services/audioEngine.ts';
   import { normalizeLocale, supportedLocales, translate, type Locale, type TranslationParams } from '#lib/i18n.ts';
   import { insertVaultEntry, moveVaultEntryInTree, removeVaultEntry, renameVaultEntryInTree, vaultCreatePlacement } from '#lib/domain/vault.ts';
   import {
@@ -116,22 +115,22 @@
   let changeVersion = 0;
   let playbackAnimationFrame: number | null = null;
   let lastPlaybackPaint = 0;
+  let visualTime = 0;
   const TIMELINE_FPS = 30;
+  const REACTIVE_CLOCK_INTERVAL_MS = 1000 / TIMELINE_FPS;
   const FRAME_US = Math.round(1_000_000 / TIMELINE_FPS);
-  let audioElement = $state<HTMLAudioElement>();
   let timelineContent: HTMLDivElement;
+  let playheadElement: HTMLDivElement;
+  let timelineRenderWidth = 0;
   let audioDuration = $state(0);
   let currentTime = $state(0);
   let audioPlaying = $state(false);
+  let playbackRequested = $state(false);
+  let audioReady = $state(false);
   let waveformPeaks = $state<number[]>([]);
   let waveformLoading = $state(false);
-  let waveformPending = $state(false);
-  let waveformTimer: ReturnType<typeof setTimeout> | null = null;
-  let waveformAbort: AbortController | null = null;
-  let waveformGeneration = 0;
   let audioLoadGeneration = 0;
-  let audioRetryCount = 0;
-  let audioRetryTimer: ReturnType<typeof setTimeout> | null = null;
+  let audioLoadAbort: AbortController | null = null;
   let textareaResizeFrame: number | null = null;
   const pendingTextareaResizes = new Set<HTMLTextAreaElement>();
   let timelineZoom = $state(1);
@@ -150,6 +149,8 @@
     maximumEndUs: number;
   } | null = null;
   let scrubbingPlayhead = $state(false);
+  let scrubTargetTime: number | null = null;
+  let scrubResumePlayback = false;
   let snapGuideUs = $state<number | null>(null);
   let lastAutoScrolledCueId: string | null = null;
   let lastResizedPlayheadGroupId: string | null = null;
@@ -789,6 +790,7 @@
       undoStack = [];
       redoStack = [];
       selectedGroupId = null;
+      pausePlayback();
       resetWaveform();
       audioUrl = '';
       localStorage.removeItem('zyykVerse.lastProject');
@@ -845,6 +847,7 @@
     selectedGroupId = null;
     undoStack = [];
     redoStack = [];
+    pausePlayback();
     resetWaveform();
     audioUrl = '';
     localStorage.setItem('zyykVerse.lastProject', filePath);
@@ -959,8 +962,9 @@
         selectedGroupId = null;
         undoStack = [];
         redoStack = [];
+        pausePlayback();
         resetWaveform();
-        cancelAudioRetry();
+        cancelAudioLoad();
         audioLoadGeneration += 1;
         audioUrl = '';
         audioError = '';
@@ -1017,150 +1021,132 @@
   }
 
   async function loadProjectAudio() {
-    cancelAudioRetry();
+    pausePlayback();
+    cancelAudioLoad();
     const generation = ++audioLoadGeneration;
-    audioRetryCount = 0;
     resetWaveform();
+    audioEngine.clear();
     audioUrl = '';
     audioDuration = 0;
     currentTime = 0;
+    visualTime = 0;
     audioPlaying = false;
+    playbackRequested = false;
+    audioReady = false;
     audioError = '';
     if (!filePath || !project.audio) return;
+
     const projectPath = filePath;
     const relativePath = project.audio.relativePath;
-    try {
-      const path = await resolveProjectAudio(projectPath, relativePath);
-      if (generation !== audioLoadGeneration || filePath !== projectPath || project.audio?.relativePath !== relativePath) return;
-      audioUrl = path;
-      const cached = await loadWaveformCache(projectPath, relativePath);
-      if (generation !== audioLoadGeneration || filePath !== projectPath || project.audio?.relativePath !== relativePath) return;
-      if (cached?.length) waveformPeaks = cached;
-    } catch (error) {
-      if (generation !== audioLoadGeneration) return;
-      if (!scheduleAudioRetry()) {
-        audioError = String(error);
-        notify(audioError);
-      }
-    }
-  }
-
-  function cancelAudioRetry() {
-    if (audioRetryTimer) clearTimeout(audioRetryTimer);
-    audioRetryTimer = null;
-  }
-
-  function scheduleAudioRetry(): boolean {
-    if (!filePath || !project.audio || audioRetryCount >= 2) return false;
-    cancelAudioRetry();
-    audioRetryCount += 1;
-    const generation = audioLoadGeneration;
-    audioRetryTimer = setTimeout(() => void retryProjectAudio(generation), 250 * audioRetryCount);
-    return true;
-  }
-
-  async function retryProjectAudio(generation: number) {
-    audioRetryTimer = null;
-    if (generation !== audioLoadGeneration || !filePath || !project.audio) return;
-    const projectPath = filePath;
-    const relativePath = project.audio.relativePath;
-    try {
-      const path = await resolveProjectAudio(projectPath, relativePath);
-      if (generation !== audioLoadGeneration || filePath !== projectPath || project.audio?.relativePath !== relativePath) return;
-      if (!waveformPeaks.length) cancelWaveformWork();
-      audioError = '';
-      audioUrl = path;
-    } catch (error) {
-      if (generation !== audioLoadGeneration) return;
-      if (!scheduleAudioRetry()) {
-        audioError = String(error);
-        notify(audioError);
-      }
-    }
-  }
-
-  function handleLoadedMetadata() {
-    if (!audioElement) return;
-    audioRetryCount = 0;
-    audioError = '';
-    audioDuration = Number.isFinite(audioElement.duration) ? audioElement.duration : 0;
-  }
-
-  function cancelWaveformWork() {
-    if (waveformTimer) clearTimeout(waveformTimer);
-    waveformTimer = null;
-    waveformAbort?.abort();
-    waveformAbort = null;
-    waveformGeneration += 1;
-    void cancelProjectWaveform().catch(() => undefined);
-    waveformLoading = false;
-    waveformPending = false;
-  }
-
-  function resetWaveform() {
-    cancelWaveformWork();
-    waveformPeaks = [];
-    waveformPending = false;
-  }
-
-  function scheduleWaveform(delay = 1800) {
-    if (!audioUrl || !audioDuration || waveformPeaks.length || audioPlaying) return;
-    if (waveformTimer || waveformLoading) return;
-    waveformPending = true;
-    const expectedUrl = audioUrl;
-    waveformTimer = setTimeout(() => {
-      waveformTimer = null;
-      if (!audioPlaying && expectedUrl === audioUrl) void loadWaveform(expectedUrl);
-    }, delay);
-  }
-
-  function handleAudioCanPlay() {
-    scheduleWaveform();
-  }
-
-  async function loadWaveform(expectedUrl: string) {
-    if (!expectedUrl || expectedUrl !== audioUrl || waveformLoading || audioPlaying) return;
-    const generation = ++waveformGeneration;
     const controller = new AbortController();
-    waveformAbort = controller;
+    audioLoadAbort = controller;
     waveformLoading = true;
-    waveformPending = false;
     try {
-      const projectPath = filePath;
-      const relativePath = project.audio?.relativePath;
-      let generatedNatively = false;
-      let peaks: number[] | null = null;
-      if (projectPath && relativePath) {
-        try {
-          peaks = await generateProjectWaveform(projectPath, relativePath);
-          generatedNatively = Boolean(peaks?.length);
-        } catch {
-          // O fallback web mantém o modo de desenvolvimento e oferece uma
-          // segunda rota caso um codec nativo específico não esteja disponível.
+      const url = await resolveProjectAudio(projectPath, relativePath);
+      if (!isCurrentAudioLoad(generation, projectPath, relativePath)) return;
+      audioUrl = url;
+
+      const cachedWaveform = loadWaveformCache(projectPath, relativePath).catch(() => null);
+      const buffer = await audioEngine.load(
+        url,
+        controller.signal,
+        () => decodeProjectAudio(projectPath, relativePath),
+      );
+      if (!isCurrentAudioLoad(generation, projectPath, relativePath)) return;
+
+      audioDuration = buffer.duration;
+      audioReady = true;
+      audioError = '';
+      renderPlayhead(0, true);
+
+      // O mesmo buffer em RAM usado na reprodução fornece a waveform em poucos
+      // milissegundos, sem uma segunda decodificação concorrendo com o áudio.
+      const generatedPeaks = audioEngine.waveform();
+      waveformPeaks = generatedPeaks;
+      waveformLoading = false;
+
+      void cachedWaveform.then((cached) => {
+        if (!isCurrentAudioLoad(generation, projectPath, relativePath)) return;
+        if (cached?.length) {
+          waveformPeaks = cached;
+        } else if (generatedPeaks.length) {
+          void saveWaveformCache(projectPath, relativePath, generatedPeaks).catch(() => undefined);
         }
-      }
-      peaks ??= await decodeWaveform(expectedUrl, controller.signal);
-      if (generation !== waveformGeneration || expectedUrl !== audioUrl || audioPlaying) return;
-      waveformPeaks = peaks;
-      if (!generatedNatively && filePath && project.audio && expectedUrl === audioUrl) {
-        void saveWaveformCache(filePath, project.audio.relativePath, peaks).catch(() => undefined);
-      }
+      });
     } catch (error) {
-      // A reprodução continua disponível mesmo quando o codec não pode ser
-      // decodificado pela Web Audio API para desenhar a waveform.
-      if (!(error instanceof DOMException && error.name === 'AbortError') && generation === waveformGeneration) waveformPeaks = [];
+      if (controller.signal.aborted || generation !== audioLoadGeneration) return;
+      audioEngine.clear();
+      audioReady = false;
+      audioError = String(error);
+      notify(audioError);
     } finally {
-      if (generation === waveformGeneration) {
-        waveformAbort = null;
+      if (generation === audioLoadGeneration) {
+        audioLoadAbort = null;
         waveformLoading = false;
       }
     }
   }
 
+  function isCurrentAudioLoad(generation: number, projectPath: string, relativePath: string): boolean {
+    return generation === audioLoadGeneration
+      && filePath === projectPath
+      && project.audio?.relativePath === relativePath;
+  }
+
+  function cancelAudioLoad() {
+    audioLoadAbort?.abort();
+    audioLoadAbort = null;
+  }
+
+  function resetWaveform() {
+    waveformPeaks = [];
+    waveformLoading = false;
+    audioEngine.clear();
+    audioReady = false;
+    audioDuration = 0;
+    currentTime = 0;
+    visualTime = 0;
+  }
+
   function togglePlayback() {
-    if (!audioElement) return;
-    if (audioElement.paused) void audioElement.play();
-    else audioElement.pause();
+    if (!audioReady || scrubbingPlayhead) return;
+    if (playbackRequested || audioEngine.isPlaying()) pausePlayback();
+    else void requestPlayback();
+  }
+
+  function pausePlayback() {
+    const position = audioEngine.pause();
+    playbackRequested = false;
+    audioPlaying = false;
+    stopPlaybackClock();
+    renderPlayhead(position, true);
+  }
+
+  async function requestPlayback() {
+    if (!audioReady || playbackRequested) return;
+    const offset = currentTime >= audioDuration - 0.001 ? 0 : currentTime;
+    playbackRequested = true;
+    audioError = '';
+    renderPlayhead(offset, true);
+    try {
+      const started = await audioEngine.play(offset, handleAudioEnded);
+      if (!playbackRequested) return;
+      if (!started) throw new Error(t('audioNotReady'));
+      audioPlaying = true;
+      startPlaybackClock();
+    } catch (error) {
+      if (!playbackRequested) return;
+      failPlayback(t('audioInterrupted'), error);
+    }
+  }
+
+  function failPlayback(message: string, error?: unknown) {
+    audioEngine.pause();
+    playbackRequested = false;
+    audioPlaying = false;
+    stopPlaybackClock();
+    audioError = error ? `${message} ${String(error)}` : message;
+    notify(audioError);
   }
 
   function stopPlaybackClock() {
@@ -1168,18 +1154,37 @@
     playbackAnimationFrame = null;
   }
 
+  function clampPlaybackTime(seconds: number): number {
+    const finiteSeconds = Number.isFinite(seconds) ? seconds : 0;
+    const maximum = audioDuration > 0 ? audioDuration : Math.max(0, finiteSeconds);
+    return Math.max(0, Math.min(maximum, finiteSeconds));
+  }
+
+  function renderPlayhead(seconds: number, updateReactiveClock = false) {
+    visualTime = clampPlaybackTime(seconds);
+    if (playheadElement && audioDuration > 0) {
+      const width = timelineRenderWidth || timelineContent?.getBoundingClientRect().width || 0;
+      playheadElement.style.transform = `translate3d(${(visualTime / audioDuration) * width}px,0,0)`;
+    }
+    if (updateReactiveClock) currentTime = visualTime;
+  }
+
+  function playbackPosition(): number {
+    if (scrubbingPlayhead && scrubTargetTime !== null) return scrubTargetTime;
+    return audioEngine.isPlaying() ? audioEngine.currentTime() : currentTime;
+  }
+
   function startPlaybackClock() {
     stopPlaybackClock();
     lastPlaybackPaint = 0;
     const paint = (timestamp: number) => {
-      if (!audioElement || audioElement.paused || audioElement.ended) {
+      if (!playbackRequested || !audioEngine.isPlaying()) {
         stopPlaybackClock();
         return;
       }
-      // Atualizar a 60 Hz deixa o playhead preciso sem depender do `timeupdate`,
-      // que em WebKit costuma entregar somente cerca de quatro eventos por segundo.
-      if (timestamp - lastPlaybackPaint >= 16) {
-        currentTime = audioElement.currentTime;
+      renderPlayhead(audioEngine.currentTime());
+      if (timestamp - lastPlaybackPaint >= REACTIVE_CLOCK_INTERVAL_MS) {
+        currentTime = visualTime;
         lastPlaybackPaint = timestamp;
       }
       playbackAnimationFrame = requestAnimationFrame(paint);
@@ -1187,25 +1192,18 @@
     playbackAnimationFrame = requestAnimationFrame(paint);
   }
 
-  function handleAudioPlay() {
-    // A waveform é decorativa; nunca deve disputar leitura/decodificação com
-    // a reprodução que o usuário acabou de iniciar.
-    if (!waveformPeaks.length) cancelWaveformWork();
-    audioPlaying = true;
-    startPlaybackClock();
-  }
-
-  function handleAudioPause() {
-    if (audioElement) currentTime = audioElement.currentTime;
+  function handleAudioEnded() {
+    playbackRequested = false;
     audioPlaying = false;
     stopPlaybackClock();
-    scheduleWaveform(500);
+    renderPlayhead(audioDuration, true);
   }
 
   function seekTo(seconds: number) {
-    if (!audioElement || !audioDuration) return;
-    audioElement.currentTime = Math.max(0, Math.min(audioDuration, seconds));
-    currentTime = audioElement.currentTime;
+    if (!audioReady || !audioDuration) return;
+    const target = audioEngine.seek(clampPlaybackTime(seconds));
+    renderPlayhead(target, true);
+    if (audioEngine.isPlaying()) startPlaybackClock();
   }
 
   function seekToGroup(group: AlignmentGroup) {
@@ -1215,22 +1213,19 @@
       notify(t('lineNotOnTimeline'));
       return;
     }
-    if (!audioElement || !audioDuration) {
+    if (!audioReady || !audioDuration) {
       notify(t('audioNotReady'));
       return;
     }
-    // Alterar currentTime mantém o estado atual do player: se estiver tocando,
-    // a reprodução continua imediatamente a partir do novo ponto.
     seekTo(cue.startUs / 1_000_000);
   }
 
   function stepAudioFrame(direction: -1 | 1) {
-    if (!audioElement || !audioDuration) return;
-    audioElement.pause();
-    const currentFrame = Math.round(audioElement.currentTime * TIMELINE_FPS);
+    if (!audioReady || !audioDuration) return;
+    pausePlayback();
+    const currentFrame = Math.round(currentTime * TIMELINE_FPS);
     seekTo((currentFrame + direction) / TIMELINE_FPS);
   }
-
   function timelinePositionAt(clientX: number, left?: number, width?: number): number {
     if (!timelineContent || !audioDuration) return 0;
     const bounds = left === undefined || width === undefined ? timelineContent.getBoundingClientRect() : null;
@@ -1258,11 +1253,14 @@
   function updatePlayheadFromPointer(clientX: number) {
     const snapped = snapTimelinePosition(timelinePositionAt(clientX), cueSnapTargets());
     snapGuideUs = snapped.magneticTargetUs;
-    seekTo(snapped.microseconds / 1_000_000);
+    scrubTargetTime = snapped.microseconds / 1_000_000;
+    renderPlayhead(scrubTargetTime, true);
   }
 
   function startTimelineScrub(event: PointerEvent) {
     if (!audioDuration || draggingCue || event.button !== 0 || (event.target as Element | null)?.closest('.timeline-cue')) return;
+    scrubResumePlayback = playbackRequested || audioEngine.isPlaying();
+    if (scrubResumePlayback) pausePlayback();
     scrubbingPlayhead = true;
     updatePlayheadFromPointer(event.clientX);
   }
@@ -1277,7 +1275,7 @@
       const nextZoom = Math.max(1, Math.min(32, Math.round((previousZoom + direction * increment) * 2) / 2));
       if (nextZoom === previousZoom) return;
       const bounds = scroller.getBoundingClientRect();
-      const playheadRatio = audioDuration ? currentTime / audioDuration : 0;
+      const playheadRatio = audioDuration ? playbackPosition() / audioDuration : 0;
       const playheadX = playheadRatio * scroller.scrollWidth;
       const playheadVisible = playheadX >= scroller.scrollLeft && playheadX <= scroller.scrollLeft + bounds.width;
       const viewportAnchor = playheadVisible ? playheadX - scroller.scrollLeft : bounds.width / 2;
@@ -1323,8 +1321,9 @@
     remember(t(boundary === 'start' ? 'entryAdjustment' : 'exitAdjustment'));
     const unit = translationFor(group);
     if (unit) ensureTranslationLineIds(unit);
-    const cue = ensureCue(group, syncRole, currentTime, translationLineIndex);
-    const position = Math.round(currentTime * 1_000_000);
+    const playheadTime = playbackPosition();
+    const cue = ensureCue(group, syncRole, playheadTime, translationLineIndex);
+    const position = Math.round(playheadTime * 1_000_000);
     const track = trackFor(syncRole) as SyncTrack;
     const limits = cueNeighborLimits(track.cues, cue, Math.round(audioDuration * 1_000_000));
     if (boundary === 'start') {
@@ -1400,7 +1399,7 @@
       }
       const desiredStartUs = Math.round(position * 1_000_000) - (draggingCue.grabOffsetUs ?? 0);
       const snapped = snapTimelinePosition(desiredStartUs / 1_000_000, [
-        Math.round(currentTime * 1_000_000),
+        Math.round(playbackPosition() * 1_000_000),
         ...draggingCue.snapTargets,
       ], draggingCue.timelineWidth);
       const lengthUs = draggingCue.cue.endUs - draggingCue.cue.startUs;
@@ -1412,7 +1411,7 @@
       return;
     }
     const snapped = snapTimelinePosition(position, [
-      Math.round(currentTime * 1_000_000),
+      Math.round(playbackPosition() * 1_000_000),
       ...draggingCue.snapTargets,
     ], draggingCue.timelineWidth);
     snapGuideUs = snapped.magneticTargetUs;
@@ -1433,7 +1432,19 @@
       draggingCue = null;
       if (changed && !discardUnchangedCheckpoint()) touch();
     }
-    scrubbingPlayhead = false;
+    if (scrubbingPlayhead && scrubTargetTime !== null && audioReady) {
+      const target = scrubTargetTime;
+      const resume = scrubResumePlayback;
+      scrubbingPlayhead = false;
+      scrubTargetTime = null;
+      scrubResumePlayback = false;
+      seekTo(target);
+      if (resume) requestPlayback();
+    } else {
+      scrubbingPlayhead = false;
+      scrubTargetTime = null;
+      scrubResumePlayback = false;
+    }
     snapGuideUs = null;
   }
 
@@ -1544,6 +1555,13 @@
       if (!target?.closest('.vault-create')) newMenuOpen = false;
     };
     window.addEventListener('pointerdown', closeFloatingMenus);
+    const timelineResizeObserver = new ResizeObserver((entries) => {
+      const entry = entries.find((candidate) => candidate.target === timelineContent);
+      if (!entry) return;
+      timelineRenderWidth = entry.contentRect.width;
+      renderPlayhead(visualTime);
+    });
+    if (timelineContent) timelineResizeObserver.observe(timelineContent);
     let unlistenDrop: (() => void) | undefined;
     void (async () => {
       const storedVault = localStorage.getItem('zyykVerse.vaultPath');
@@ -1582,33 +1600,18 @@
       window.removeEventListener('pointermove', handlePointerMove);
       window.removeEventListener('pointerup', handlePointerUp);
       window.removeEventListener('pointerdown', closeFloatingMenus);
+      timelineResizeObserver.disconnect();
       unlistenDrop?.();
       if (autosaveTimer) clearTimeout(autosaveTimer);
-      cancelAudioRetry();
+      cancelAudioLoad();
       audioLoadGeneration += 1;
-      cancelWaveformWork();
-      stopPlaybackClock();
+      pausePlayback();
+      audioEngine.clear();
     };
   });
 
   function isAudioPath(path: string): boolean {
     return /\.(mp3|flac|wav|ogg)$/i.test(path);
-  }
-
-  function handleAudioError(event: Event) {
-    const media = event.currentTarget as HTMLAudioElement;
-    if (media !== audioElement) return;
-    if ((media.error?.code === 2 || media.error?.code === 4) && scheduleAudioRetry()) {
-      audioError = '';
-      return;
-    }
-    const messages: Record<number, string> = {
-      1: t('audioInterrupted'),
-      2: t('audioReadFailed'),
-      3: t('audioDecodeFailed'),
-      4: t('audioUnsupported'),
-    };
-    audioError = messages[media.error?.code ?? 0] ?? t('audioUnknownFailure');
   }
 </script>
 
@@ -1812,7 +1815,7 @@
   <footer class="timeline-panel">
     <div class="transport-bar">
       <div class="audio-identity"><span>♫</span><strong>{project.audio?.originalName ?? t('noAudio')}</strong></div>
-      <button class="transport-play" onclick={togglePlayback} disabled={!audioUrl} aria-label={audioPlaying ? t('pause') : t('play')}>{audioPlaying ? '❚❚' : '▶'}</button>
+      <button class="transport-play" onclick={togglePlayback} disabled={!audioReady} aria-label={playbackRequested ? t('pause') : t('play')}>{playbackRequested ? '❚❚' : '▶'}</button>
       <span class="transport-time">{formatClock(currentTime, true)} <i>/</i> {formatClock(audioDuration, true)}</span>
       <span class="frame-hint" title={t('frameHint')}>← 1 {t('frame')} · {TIMELINE_FPS} fps · 1 {t('frame')} →</span>
       <label class="zoom-control">{t('zoom')} <input type="range" min="1" max="32" step="0.5" bind:value={timelineZoom} /></label>
@@ -1828,7 +1831,7 @@
         <div class="waveform" class:loading={waveformLoading}>
           {#if waveformPeaks.length}
             <svg viewBox={`0 0 ${waveformPeaks.length - 1} 2`} preserveAspectRatio="none" aria-hidden="true"><path d={waveformPath}></path></svg>
-          {:else}<span>{audioUrl ? (waveformLoading ? t('generatingWaveform') : waveformPending ? t('preparingWaveform') : t('waveformUnavailable')) : t('addOrDropAudio')}</span>{/if}
+          {:else}<span>{audioUrl ? (waveformLoading ? t('generatingWaveform') : t('waveformUnavailable')) : t('addOrDropAudio')}</span>{/if}
         </div>
         <div class="cue-lane">
           {#each activeTrack?.cues ?? [] as cue (cue.id)}
@@ -1841,10 +1844,9 @@
           {/each}
         </div>
         {#if snapGuideUs !== null}<div class="snap-guide" style={`left:${audioDuration ? (snapGuideUs / 1_000_000 / audioDuration) * 100 : 0}%`}><span>{t('snap')}</span></div>{/if}
-        <div class="playhead" style={`left:${audioDuration ? (currentTime / audioDuration) * 100 : 0}%`}><i></i></div>
+        <div class="playhead" bind:this={playheadElement}><i></i></div>
       </div>
     </div>
-    {#if audioUrl}<audio bind:this={audioElement} src={audioUrl} preload="auto" crossorigin="anonymous" onloadedmetadata={handleLoadedMetadata} oncanplay={handleAudioCanPlay} ontimeupdate={(event) => { if (!audioPlaying) currentTime = event.currentTarget.currentTime; }} onplay={handleAudioPlay} onpause={handleAudioPause} onended={handleAudioPause} onerror={handleAudioError}></audio>{/if}
   </footer>
 </main>
 
