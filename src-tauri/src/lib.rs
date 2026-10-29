@@ -13,7 +13,10 @@ mod waveform;
 use lyrics::ParsedLyrics;
 use model::VerseProject;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Arc, Mutex,
+};
 
 async fn blocking<T, F>(operation: F) -> Result<T, String>
 where
@@ -28,6 +31,10 @@ where
 struct MediaState {
     registry: media_server::MediaRegistry,
     port: u16,
+}
+
+struct WaveformState {
+    generation: Arc<AtomicU64>,
 }
 
 #[tauri::command]
@@ -139,10 +146,13 @@ fn resolve_project_audio(
 
 #[tauri::command]
 async fn generate_waveform(
+    state: tauri::State<'_, WaveformState>,
     project_path: String,
     relative_path: String,
     peak_count: usize,
 ) -> Result<Vec<f32>, String> {
+    let generation = state.generation.fetch_add(1, Ordering::AcqRel) + 1;
+    let current_generation = state.generation.clone();
     blocking(move || {
         let project_path = Path::new(&project_path);
         let relative_path = Path::new(&relative_path);
@@ -150,11 +160,20 @@ async fn generate_waveform(
             return Ok(cached);
         }
         let audio = vault::resolve_audio(project_path, relative_path)?;
-        let peaks = waveform::decode(Path::new(&audio), peak_count)?;
+        let cancelled = || current_generation.load(Ordering::Acquire) != generation;
+        let peaks = waveform::decode_with_cancel(Path::new(&audio), peak_count, &cancelled)?;
+        if cancelled() {
+            return Err(waveform::CANCELLED_ERROR.to_owned());
+        }
         vault::save_waveform_cache(project_path, relative_path, &peaks)?;
         Ok(peaks)
     })
     .await
+}
+
+#[tauri::command]
+fn cancel_waveform(state: tauri::State<'_, WaveformState>) {
+    state.generation.fetch_add(1, Ordering::AcqRel);
 }
 
 #[tauri::command]
@@ -176,15 +195,15 @@ fn save_waveform_cache(
 
 #[tauri::command]
 fn write_export_file(path: String, contents: String) -> Result<(), String> {
-    if Path::new(&path)
+    let extension = Path::new(&path)
         .extension()
         .and_then(|value| value.to_str())
-        != Some("srt")
-    {
-        return Err("A exportação precisa usar a extensão .srt.".to_owned());
+        .map(str::to_ascii_lowercase);
+    if !matches!(extension.as_deref(), Some("srt" | "vtt" | "lrc")) {
+        return Err("A exportação precisa usar a extensão .srt, .vtt ou .lrc.".to_owned());
     }
     if contents.len() > 20 * 1024 * 1024 {
-        return Err("O arquivo SRT excede o limite de 20 MB.".to_owned());
+        return Err("O arquivo exportado excede o limite de 20 MB.".to_owned());
     }
     std::fs::write(Path::new(&path), contents)
         .map_err(|error| format!("Não foi possível exportar o arquivo: {error}"))
@@ -198,6 +217,9 @@ pub fn run() {
         registry,
         port: media_server.as_ref().map(|server| server.port).unwrap_or(0),
     };
+    let waveform_state = WaveformState {
+        generation: Arc::new(AtomicU64::new(0)),
+    };
     let mut context = tauri::generate_context!();
     if let Some(server) = media_server.as_ref() {
         let origin = format!("http://127.0.0.1:{}", server.port);
@@ -207,6 +229,7 @@ pub fn run() {
     }
     let app = tauri::Builder::default()
         .manage(media_state)
+        .manage(waveform_state)
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             new_project,
@@ -222,6 +245,7 @@ pub fn run() {
             import_project_audio,
             resolve_project_audio,
             generate_waveform,
+            cancel_waveform,
             load_waveform_cache,
             save_waveform_cache,
             write_export_file,

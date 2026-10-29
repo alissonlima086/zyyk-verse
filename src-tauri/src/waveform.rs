@@ -10,7 +10,18 @@ use symphonia::core::meta::MetadataOptions;
 use symphonia::core::probe::Hint;
 use symphonia::default::{get_codecs, get_probe};
 
+pub const CANCELLED_ERROR: &str = "Geração da waveform cancelada.";
+
+#[cfg(test)]
 pub fn decode(path: &Path, peak_count: usize) -> Result<Vec<f32>, String> {
+    decode_with_cancel(path, peak_count, &|| false)
+}
+
+pub fn decode_with_cancel(
+    path: &Path,
+    peak_count: usize,
+    cancelled: &impl Fn() -> bool,
+) -> Result<Vec<f32>, String> {
     let peak_count = peak_count.clamp(100, 5_000);
     let file = File::open(path).map_err(|error| {
         format!("Não foi possível abrir o áudio para gerar a waveform: {error}")
@@ -44,6 +55,9 @@ pub fn decode(path: &Path, peak_count: usize) -> Result<Vec<f32>, String> {
     let mut frames_in_bucket = 0_usize;
 
     loop {
+        if cancelled() {
+            return Err(CANCELLED_ERROR.to_owned());
+        }
         let packet = match format.next_packet() {
             Ok(packet) => packet,
             Err(SymphoniaError::IoError(error)) if error.kind() == ErrorKind::UnexpectedEof => {
@@ -141,6 +155,9 @@ mod tests {
             file.write_all(&sample.to_le_bytes()).unwrap();
         }
         drop(file);
+
+        let cancelled = decode_with_cancel(&path, 320, &|| true).unwrap_err();
+        assert_eq!(cancelled, CANCELLED_ERROR);
 
         let peaks = decode(&path, 320).unwrap();
         assert_eq!(peaks.len(), 320);

@@ -1,5 +1,23 @@
 import type { VaultEntry } from '../types/project.ts';
 
+export interface FlatVaultItem {
+  entry: VaultEntry;
+  depth: number;
+}
+
+export function vaultCreatePlacement(
+  entries: FlatVaultItem[],
+  parentPath: string | null,
+): { index: number; depth: number } {
+  if (!parentPath) return { index: entries.length, depth: 0 };
+  const parentIndex = entries.findIndex(({ entry }) => entry.path === parentPath && entry.kind === 'folder');
+  if (parentIndex < 0) return { index: entries.length, depth: 0 };
+  const parentDepth = entries[parentIndex].depth;
+  let index = parentIndex + 1;
+  while (index < entries.length && entries[index].depth > parentDepth) index += 1;
+  return { index, depth: parentDepth + 1 };
+}
+
 function ordered(entries: VaultEntry[]): VaultEntry[] {
   return [...entries].sort((left, right) => {
     const rank = Number(left.kind === 'project') - Number(right.kind === 'project');

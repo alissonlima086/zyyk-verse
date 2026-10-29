@@ -106,22 +106,44 @@ export async function generateProjectWaveform(
   return invoke<number[]>('generate_waveform', { projectPath, relativePath, peakCount });
 }
 
+export async function cancelProjectWaveform(): Promise<void> {
+  if (!inTauri()) return;
+  const { invoke } = await import('@tauri-apps/api/core');
+  await invoke('cancel_waveform');
+}
+
 export async function saveWaveformCache(projectPath: string, relativePath: string, peaks: number[]): Promise<void> {
   if (!inTauri()) return;
   const { invoke } = await import('@tauri-apps/api/core');
   await invoke('save_waveform_cache', { projectPath, relativePath, peaks });
 }
 
-export async function exportTextFile(suggestedName: string, contents: string): Promise<boolean> {
+export async function chooseExportPath(
+  suggestedName: string,
+  format: 'srt' | 'vtt' | 'lrc',
+): Promise<string | null> {
+  if (!inTauri()) return suggestedName;
   const { save } = await import('@tauri-apps/plugin-dialog');
-  const path = await save({
+  return save({
     defaultPath: suggestedName,
-    filters: [{ name: 'SubRip Subtitle', extensions: ['srt'] }],
+    filters: [{
+      name: format === 'srt' ? 'SubRip Subtitle' : format === 'vtt' ? 'WebVTT Subtitle' : 'LRC Lyrics',
+      extensions: [format],
+    }],
   });
-  if (!path) return false;
+}
+
+export async function writeExportFile(path: string, contents: string): Promise<void> {
+  if (!inTauri()) {
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(new Blob([contents], { type: 'text/plain;charset=utf-8' }));
+    link.download = path.split(/[\\/]/).at(-1) || 'legenda.srt';
+    link.click();
+    URL.revokeObjectURL(link.href);
+    return;
+  }
   const { invoke } = await import('@tauri-apps/api/core');
   await invoke('write_export_file', { path, contents });
-  return true;
 }
 
 

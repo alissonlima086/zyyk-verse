@@ -13,33 +13,6 @@ export interface CueNeighborLimits {
   maximumEndUs: number;
 }
 
-export interface AvailableCueRange {
-  startUs: number;
-  endUs: number;
-}
-
-export function findAvailableCueRange(
-  cues: SyncCue[],
-  requestedStartUs: number,
-  durationUs: number,
-  preferredLengthUs = 1_000_000,
-  minimumLengthUs = 33_333,
-  gapUs = MIN_CUE_GAP_US,
-): AvailableCueRange | null {
-  const duration = Math.max(0, Math.round(durationUs));
-  let startUs = Math.max(0, Math.min(duration, Math.round(requestedStartUs)));
-  for (const cue of sortedCues(cues)) {
-    if (cue.endUs + gapUs <= startUs) continue;
-    const freeEndUs = Math.max(0, cue.startUs - gapUs);
-    if (freeEndUs - startUs >= minimumLengthUs) {
-      return { startUs, endUs: Math.min(freeEndUs, startUs + preferredLengthUs) };
-    }
-    startUs = Math.max(startUs, cue.endUs + gapUs);
-  }
-  const endUs = Math.min(duration, startUs + preferredLengthUs);
-  return endUs - startUs >= minimumLengthUs ? { startUs, endUs } : null;
-}
-
 export function compareCues(left: SyncCue, right: SyncCue): number {
   return left.startUs - right.startUs || left.endUs - right.endUs || left.id.localeCompare(right.id);
 }
@@ -160,13 +133,13 @@ export function formatClock(seconds: number, milliseconds = false): string {
   return milliseconds ? `${base}.${String(fraction).padStart(3, '0')}` : base;
 }
 
-function srtTime(microseconds: number): string {
+function subtitleTime(microseconds: number, decimalSeparator: ',' | '.'): string {
   const milliseconds = Math.max(0, Math.round(microseconds / 1000));
   const hours = Math.floor(milliseconds / 3_600_000);
   const minutes = Math.floor((milliseconds % 3_600_000) / 60_000);
   const seconds = Math.floor((milliseconds % 60_000) / 1000);
   const millis = milliseconds % 1000;
-  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')},${String(millis).padStart(3, '0')}`;
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}${decimalSeparator}${String(millis).padStart(3, '0')}`;
 }
 
 export function cueText(project: VerseProject, cue: SyncCue, role: SyncRole): string {
@@ -189,25 +162,31 @@ export function cueText(project: VerseProject, cue: SyncCue, role: SyncRole): st
     .join('\n');
 }
 
-export interface SrtValidationMessages {
+export type SubtitleFormat = 'srt' | 'vtt' | 'lrc';
+
+export interface SubtitleValidationMessages {
   emptyTrack: string;
   invalidCue: string;
-  missingTranslation: string;
-  missingOriginal: string;
 }
 
-const defaultSrtValidationMessages: SrtValidationMessages = {
+export interface SubtitleExport {
+  contents: string;
+  totalCueCount: number;
+  exportedCueCount: number;
+  omittedCueCount: number;
+}
+
+const defaultSubtitleValidationMessages: SubtitleValidationMessages = {
   emptyTrack: 'A trilha ainda não possui versos sincronizados.',
   invalidCue: 'Há um cue com duração inválida. Ajuste seus limites antes de exportar.',
-  missingTranslation: 'Há um verso sincronizado sem tradução selecionada.',
-  missingOriginal: 'Há um verso sincronizado sem texto original.',
 };
 
-export function projectToSrt(
+export function createSubtitleExport(
   project: VerseProject,
   role: SyncRole,
-  messages: SrtValidationMessages = defaultSrtValidationMessages,
-): string {
+  format: SubtitleFormat,
+  messages: SubtitleValidationMessages = defaultSubtitleValidationMessages,
+): SubtitleExport {
   const track = project.syncTracks.find((candidate) => candidate.role === role);
   if (!track?.cues.length) throw new Error(messages.emptyTrack);
   if (track.cues.some((cue) => cue.endUs <= cue.startUs)) {
@@ -216,8 +195,43 @@ export function projectToSrt(
   const entries = [...track.cues]
     .sort((a, b) => a.startUs - b.startUs || a.endUs - b.endUs)
     .map((cue) => ({ cue, text: cueText(project, cue, role) }));
-  if (entries.some((entry) => !entry.text)) {
-    throw new Error(role === 'translation' ? messages.missingTranslation : messages.missingOriginal);
-  }
-  return `${entries.map(({ cue, text }, index) => `${index + 1}\n${srtTime(cue.startUs)} --> ${srtTime(cue.endUs)}\n${text}`).join('\n\n')}\n`;
+  const exportable = entries.filter((entry) => entry.text);
+  const blocks = exportable.map(({ cue, text }, index) => {
+    if (format === 'srt') return `${index + 1}\n${subtitleTime(cue.startUs, ',')} --> ${subtitleTime(cue.endUs, ',')}\n${text}`;
+    if (format === 'vtt') return `${subtitleTime(cue.startUs, '.')} --> ${subtitleTime(cue.endUs, '.')}\n${text}`;
+    return `${lrcTime(cue.startUs)}${text.replace(/\n+/g, ' / ')}`;
+  });
+  const body = blocks.length ? `${blocks.join(format === 'lrc' ? '\n' : '\n\n')}\n` : '';
+  const lrcHeader = [
+    `[ti:${lrcMetadata(project.metadata.title)}]`,
+    project.metadata.artist ? `[ar:${lrcMetadata(project.metadata.artist)}]` : '',
+    project.metadata.album ? `[al:${lrcMetadata(project.metadata.album)}]` : '',
+    '[by:ZYYK Verse]',
+  ].filter(Boolean).join('\n');
+  return {
+    contents: format === 'vtt' ? `WEBVTT\n\n${body}` : format === 'lrc' ? `${lrcHeader}\n\n${body}` : body,
+    totalCueCount: entries.length,
+    exportedCueCount: exportable.length,
+    omittedCueCount: entries.length - exportable.length,
+  };
+}
+
+function lrcTime(microseconds: number): string {
+  const centiseconds = Math.max(0, Math.round(microseconds / 10_000));
+  const minutes = Math.floor(centiseconds / 6_000);
+  const seconds = Math.floor((centiseconds % 6_000) / 100);
+  const fraction = centiseconds % 100;
+  return `[${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}.${String(fraction).padStart(2, '0')}]`;
+}
+
+function lrcMetadata(value: string): string {
+  return value.replace(/[\r\n]+/g, ' ').replaceAll(']', ')').trim();
+}
+
+export function projectToSrt(
+  project: VerseProject,
+  role: SyncRole,
+  messages: SubtitleValidationMessages = defaultSubtitleValidationMessages,
+): string {
+  return createSubtitleExport(project, role, 'srt', messages).contents;
 }

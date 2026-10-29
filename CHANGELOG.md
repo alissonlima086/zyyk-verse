@@ -7,6 +7,42 @@ e o projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ## [Não lançado]
 
+## [0.1.3] - 2026-10-29
+
+### Adicionado
+
+- Distribuição Linux ARM64 em paralelo ao artefato x86_64.
+- Criação de projetos vazios com edição da letra linha por linha, mantendo a
+  importação da letra completa como alternativa.
+- Modal de exportação com escolha de destino, prévia do arquivo e suporte aos
+  formatos SRT, WebVTT e LRC.
+- Exportação parcial de projetos, com alerta e contagem dos textos ainda não
+  traduzidos que serão omitidos.
+
+### Alterado
+
+- Campo para criar projetos e pastas exibido diretamente na posição da árvore
+  da vault em que o novo item será inserido.
+- Botão de detalhes movido para o cabeçalho do projeto, junto ao progresso da
+  tradução.
+- Reprodução e edição da timeline otimizadas para reduzir recálculos de layout,
+  buscas repetidas e trabalho reativo por frame.
+- Comparação do histórico e sincronização de versos duplicados otimizadas para
+  projetos maiores.
+- Geração nativa da waveform agora pode ser cancelada de fato quando a
+  reprodução começa ou uma nova geração substitui a anterior.
+
+### Removido
+
+- Botão de inserção automática de texto na timeline, que não indicava qual
+  verso seria adicionado.
+
+### Corrigido
+
+- Menu de criação da vault agora fecha ao clicar fora dele.
+- Botão para adicionar o próximo verso permanece visível no WebKit ao iniciar
+  uma letra linha por linha.
+
 ## [0.1.2] - 2026-10-29
 
 ### Corrigido
@@ -47,7 +83,8 @@ e o projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 - Distribuição Linux em AppImage com fontes correspondentes e informações de
   conformidade.
 
-[Não lançado]: https://github.com/alissonlima086/zyyk-verse/compare/v0.1.2...HEAD
+[Não lançado]: https://github.com/alissonlima086/zyyk-verse/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/alissonlima086/zyyk-verse/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/alissonlima086/zyyk-verse/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/alissonlima086/zyyk-verse/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/alissonlima086/zyyk-verse/releases/tag/v0.1.0
