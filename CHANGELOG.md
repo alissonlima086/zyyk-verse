@@ -10,6 +10,8 @@ e o projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased] — Não lançado
 
+## [0.1.6] - 2026-10-30
+
 ### English
 
 #### Added
@@ -339,7 +341,8 @@ e o projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 - Distribuição Linux em AppImage com fontes correspondentes e informações de
   conformidade.
 
-[Unreleased]: https://github.com/alissonlima086/zyyk-verse/compare/v0.1.5...HEAD
+[Unreleased]: https://github.com/alissonlima086/zyyk-verse/compare/v0.1.6...HEAD
+[0.1.6]: https://github.com/alissonlima086/zyyk-verse/compare/v0.1.5...v0.1.6
 [0.1.5]: https://github.com/alissonlima086/zyyk-verse/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/alissonlima086/zyyk-verse/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/alissonlima086/zyyk-verse/compare/v0.1.2...v0.1.3
