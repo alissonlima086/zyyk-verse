@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "ZYYK Verse",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "identifier": "com.zyyk.verse",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -22,15 +22,21 @@
     ],
     "security": {
       "csp": "default-src 'self' ipc: http://ipc.localhost; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost;",
-      "assetProtocol": { "enable": false }
+      "assetProtocol": {
+        "enable": false
+      }
     }
   },
   "bundle": {
     "active": true,
-    "targets": ["appimage"],
+    "targets": [
+      "appimage"
+    ],
     "category": "Music",
     "shortDescription": "Editor de letras, tradução e sincronização musical",
-    "icon": ["icons/icon.png"],
+    "icon": [
+      "icons/icon.png"
+    ],
     "linux": {
       "appimage": {
         "bundleMediaFramework": true,

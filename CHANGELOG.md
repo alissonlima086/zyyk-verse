@@ -10,6 +10,8 @@ e o projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased] — Não lançado
 
+## [0.1.5] - 2026-10-30
+
 ### English
 
 #### Added
@@ -35,6 +37,9 @@ e o projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 - The initial public Windows installer is intentionally unsigned to keep the
   project cost-free. Releases identify this state explicitly and document the
   expected SmartScreen warning and checksum verification.
+- This first Windows release has passed the native CI build and automated
+  tests but has not yet been exercised on a physical Windows installation.
+  Compatibility feedback is welcome through the project issue tracker.
 
 ### Português
 
@@ -63,6 +68,10 @@ e o projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 - O primeiro instalador Windows público será intencionalmente não assinado
   para manter o projeto sem custos. As releases identificam esse estado e
   documentam o alerta esperado do SmartScreen e a verificação do checksum.
+- Esta primeira release Windows passou pelo build nativo e pelos testes
+  automatizados da CI, mas ainda não foi exercitada em uma instalação física
+  do Windows. Relatos de compatibilidade são bem-vindos no rastreador de
+  issues do projeto.
 
 ## [0.1.4] - 2026-10-29
 
@@ -286,7 +295,8 @@ e o projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 - Distribuição Linux em AppImage com fontes correspondentes e informações de
   conformidade.
 
-[Unreleased]: https://github.com/alissonlima086/zyyk-verse/compare/v0.1.4...HEAD
+[Unreleased]: https://github.com/alissonlima086/zyyk-verse/compare/v0.1.5...HEAD
+[0.1.5]: https://github.com/alissonlima086/zyyk-verse/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/alissonlima086/zyyk-verse/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/alissonlima086/zyyk-verse/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/alissonlima086/zyyk-verse/compare/v0.1.1...v0.1.2
