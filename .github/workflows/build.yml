@@ -226,6 +226,10 @@ jobs:
       - name: Preparar primeira passagem
         run: node .github/compliance/audit.mjs bootstrap
 
+      - name: Limpar AppImages restaurados do cache
+        shell: bash
+        run: rm -rf src-tauri/target/release/bundle/appimage
+
       - name: Compilar AppImage para inspeção
         run: npm run tauri -- build --bundles appimage
 
@@ -366,6 +370,13 @@ jobs:
           npm run check
           npm audit --audit-level=high
           cargo test --manifest-path src-tauri/Cargo.toml --locked
+
+      - name: Remove NSIS bundles restored from cache
+        shell: pwsh
+        run: |
+          if (Test-Path "src-tauri/target/release/bundle/nsis") {
+            Remove-Item "src-tauri/target/release/bundle/nsis" -Recurse -Force
+          }
 
       - name: Build unsigned NSIS candidate
         run: npm run tauri -- build --bundles nsis --ci
