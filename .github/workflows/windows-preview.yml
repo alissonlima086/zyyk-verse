@@ -65,6 +65,13 @@ jobs:
           npm audit --audit-level=high
           cargo test --manifest-path src-tauri/Cargo.toml --locked
 
+      - name: Remove NSIS bundles restored from cache
+        shell: pwsh
+        run: |
+          if (Test-Path "src-tauri/target/release/bundle/nsis") {
+            Remove-Item "src-tauri/target/release/bundle/nsis" -Recurse -Force
+          }
+
       - name: Build unsigned NSIS preview
         run: npm run tauri -- build --bundles nsis --ci
 
