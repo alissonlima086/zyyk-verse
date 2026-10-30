@@ -10,6 +10,26 @@ e o projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased] — Não lançado
 
+### English
+
+#### Changed
+
+- Public GitHub Releases now contain only the two Linux AppImages and the
+  Windows installer. Compliance reports and checksums remain restricted to
+  the internal build-candidate artifacts.
+- Release automation now waits for GitHub to register pull-request checks
+  before watching them, avoiding a false failure immediately after PR creation.
+
+### Português
+
+#### Alterado
+
+- As releases públicas do GitHub agora contêm somente os dois AppImages Linux
+  e o instalador Windows. Relatórios de conformidade e checksums permanecem
+  restritos aos artefatos internos dos candidatos de build.
+- A automação de release agora aguarda o GitHub registrar os checks do pull
+  request antes de acompanhá-los, evitando uma falha falsa logo após criar o PR.
+
 ## [0.1.5] - 2026-10-30
 
 ### English

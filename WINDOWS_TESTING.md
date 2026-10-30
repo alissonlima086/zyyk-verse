@@ -7,7 +7,7 @@ SHA-256, Windows build, WebView2 version, machine/VM, tester, and date.
 The NSIS installer is intentionally unsigned to keep the project cost-free.
 Microsoft Defender SmartScreen can therefore show an unrecognized-app warning.
 Only continue after confirming that the file came from the official GitHub
-Release and that its SHA-256 matches the accompanying `SHA256SUMS`.
+Release. Record the locally calculated SHA-256 with the test results.
 
 ## Integrity and installation
 
