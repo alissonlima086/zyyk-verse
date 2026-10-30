@@ -97,6 +97,22 @@ wait_for_run() {
   return 1
 }
 
+wait_for_pr_checks() {
+  local pr="$1" check_count=""
+  for _attempt in {1..60}; do
+    check_count="$(gh_cmd pr view "$pr" --json statusCheckRollup \
+      --jq '.statusCheckRollup | length')"
+    if [[ "$check_count" -gt 0 ]]; then
+      gh_cmd pr checks "$pr" --watch --interval 10
+      return 0
+    fi
+    echo "Checks do pull request ainda não registrados (${_attempt}/60)."
+    sleep 5
+  done
+  echo "Nenhum check foi registrado para $pr em 5 minutos." >&2
+  return 1
+}
+
 validate_version_files() {
   local expected="$1"
   local package_version tauri_version cargo_version
@@ -169,7 +185,7 @@ if [[ "$RESUME" == false ]]; then
     --title "Release v$VERSION" \
     --body "Prepare ZYYK Verse v$VERSION from the bilingual changelog and validated project sources.")"
   echo "Pull request: $PR_URL"
-  gh_cmd pr checks "$PR_URL" --watch --interval 10
+  wait_for_pr_checks "$PR_URL"
   gh_cmd pr merge "$PR_URL" --merge --delete-branch
   git switch main
   git pull --ff-only origin main

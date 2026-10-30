@@ -38,8 +38,7 @@ O formato `.zyykverse` mantém metadados, segmentos da letra original, unidades 
 
 O instalador Windows inicial é distribuído sem assinatura digital para manter o
 projeto sem custos. Antes de ignorar um possível alerta do Microsoft Defender
-SmartScreen, confira se o arquivo veio da GitHub Release oficial e valide seu
-SHA-256 pelo `SHA256SUMS` publicado junto da versão.
+SmartScreen, confira se o arquivo veio da GitHub Release oficial.
 
 O roteiro de validação da plataforma está em
 [WINDOWS_TESTING.md](WINDOWS_TESTING.md).
