@@ -20,7 +20,8 @@ Uso:
 
 Antes do fluxo normal, registre as mudanças nas seções English e Português de
 [Unreleased] no CHANGELOG.md. O script cria branch, atualiza versões, valida,
-commita, abre e mescla o PR, aguarda os AppImages, cria a tag e publica a release.
+commita, abre e mescla o PR, aguarda os candidatos Linux e Windows, cria a tag
+e publica a release.
 EOF
 }
 
