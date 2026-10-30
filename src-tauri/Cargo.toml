@@ -1,6 +1,6 @@
 [package]
 name = "zyyk-verse"
-version = "0.1.5"
+version = "0.1.6"
 description = "ZYYK Verse desktop lyric translation editor"
 authors = ["Alisson Lima"]
 license = "GPL-3.0-or-later"
