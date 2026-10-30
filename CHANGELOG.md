@@ -21,12 +21,20 @@ e o projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
   previewing the next version without changing the repository.
 - An unsigned Windows x64 NSIS preview workflow to validate the native MSVC
   build and produce a short-lived test installer on pull requests.
+- Windows x64 release candidates with SPDX SBOM, third-party notices,
+  corresponding copyleft sources, SHA-256 checksums, and immutable promotion
+  alongside both Linux architectures.
+- A native Windows persistence test that verifies a locked destination never
+  corrupts the saved project or leaves a temporary file behind.
 
 #### Changed
 
 - Interface copy is fully inventoried in the Portuguese and English catalogs,
   including dialog labels, filenames, examples, fallbacks, and user-facing
   error states. Automated checks now reject untranslated visible text.
+- The initial public Windows installer is intentionally unsigned to keep the
+  project cost-free. Releases identify this state explicitly and document the
+  expected SmartScreen warning and checksum verification.
 
 ### Português
 
@@ -40,6 +48,11 @@ e o projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
   segurança e visualizar a próxima versão sem alterar o repositório.
 - Workflow de preview NSIS Windows x64 sem assinatura para validar o build
   MSVC nativo e produzir um instalador de teste temporário nos pull requests.
+- Candidatos de release Windows x64 com SBOM SPDX, avisos de terceiros, fontes
+  copyleft correspondentes, checksums SHA-256 e promoção imutável junto das
+  duas arquiteturas Linux.
+- Teste nativo Windows de persistência que confirma que um destino bloqueado
+  não corrompe o projeto salvo nem deixa arquivo temporário abandonado.
 
 #### Alterado
 
@@ -47,6 +60,9 @@ e o projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
   português e inglês, incluindo diálogos, nomes de arquivo, exemplos,
   fallbacks e estados de erro visíveis. Verificações automáticas passam a
   recusar textos visíveis sem tradução.
+- O primeiro instalador Windows público será intencionalmente não assinado
+  para manter o projeto sem custos. As releases identificam esse estado e
+  documentam o alerta esperado do SmartScreen e a verificação do checksum.
 
 ## [0.1.4] - 2026-10-29
 

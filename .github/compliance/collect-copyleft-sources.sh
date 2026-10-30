@@ -77,9 +77,9 @@ printf '%s\n' \
   "Fontes de terceiros copyleft distribuídas pelo ZYYK Verse ${VERSION}" \
   '' \
   'third-party-sources contém as fontes dos componentes copyleft efetivamente' \
-  'encontrados nos AppImages, separadas em native, cargo e npm.' \
+  'encontrados nos artefatos distribuídos, separadas em native, cargo e npm.' \
   '' \
-  'manifests/ e compliance/ separam a proveniência e a auditoria por arquitetura.' \
+  'manifests/ e compliance/ separam a proveniência por plataforma e arquitetura.' \
   'O código do Verse é disponibilizado pelos arquivos Source code da tag no GitHub.' \
   > "$ROOT_DIR/README.txt"
 

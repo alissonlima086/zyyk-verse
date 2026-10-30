@@ -84,7 +84,7 @@ jobs:
       - name: Baixar artefato validado
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.0
         with:
-          pattern: zyyk-verse-linux-*
+          pattern: zyyk-verse-*
           path: release-assets
           github-token: ${{ github.token }}
           repository: ${{ github.repository }}
@@ -94,9 +94,9 @@ jobs:
         shell: bash
         run: |
           shopt -s nullglob
-          artifact_directories=(release-assets/zyyk-verse-linux-*)
-          if [[ "${#artifact_directories[@]}" -ne 2 ]]; then
-            echo "Esperados dois artefatos Linux; encontrados ${#artifact_directories[@]}." >&2
+          artifact_directories=(release-assets/zyyk-verse-linux-* release-assets/zyyk-verse-windows-x86_64)
+          if [[ "${#artifact_directories[@]}" -ne 3 ]]; then
+            echo "Esperados dois artefatos Linux e um Windows; encontrados ${#artifact_directories[@]}." >&2
             exit 1
           fi
           for directory in "${artifact_directories[@]}"; do
@@ -114,15 +114,17 @@ jobs:
             exit 1
           fi
           shopt -s nullglob
-          applications=(release-assets/zyyk-verse-linux-*/*.AppImage)
-          architecture_sources=(release-assets/zyyk-verse-linux-*/ZYYK-Verse-*-third-party-copyleft-sources.tar.gz)
-          if [[ "${#applications[@]}" -ne 2 || "${#architecture_sources[@]}" -ne 2 ]]; then
-            echo "Esperados dois AppImages e dois pacotes copyleft intermediários; encontrados ${#applications[@]} e ${#architecture_sources[@]}." >&2
+          appimages=(release-assets/zyyk-verse-linux-*/*.AppImage)
+          windows_installers=(release-assets/zyyk-verse-windows-x86_64/*-setup.exe)
+          architecture_sources=(release-assets/zyyk-verse-*/ZYYK-Verse-*-third-party-copyleft-sources.tar.gz)
+          if [[ "${#appimages[@]}" -ne 2 || "${#windows_installers[@]}" -ne 1 || "${#architecture_sources[@]}" -ne 3 ]]; then
+            echo "Esperados dois AppImages, um instalador Windows e três pacotes copyleft intermediários; encontrados ${#appimages[@]}, ${#windows_installers[@]} e ${#architecture_sources[@]}." >&2
             exit 1
           fi
           version="${GITHUB_REF_NAME#v}"
           consolidated="$RUNNER_TEMP/ZYYK-Verse-${version}-third-party-copyleft-sources.tar.gz"
           release_notes="$RUNNER_TEMP/release-notes.md"
+          final_assets="$RUNNER_TEMP/release-assets"
           bash .github/compliance/consolidate-copyleft-sources.sh \
             "$consolidated" "${architecture_sources[@]}"
           awk -v version="$version" '
@@ -134,7 +136,18 @@ jobs:
             echo "Notas da versão ${version} não encontradas no CHANGELOG.md." >&2
             exit 1
           fi
-          gh release create "$GITHUB_REF_NAME" "${applications[@]}" "$consolidated" \
+          mkdir -p "$final_assets"
+          cp "${appimages[@]}" "${windows_installers[@]}" "$consolidated" "$final_assets/"
+          cp release-assets/zyyk-verse-windows-x86_64/THIRD_PARTY_NOTICES.md \
+            "$final_assets/ZYYK-Verse-${version}-windows-x86_64-THIRD_PARTY_NOTICES.md"
+          cp release-assets/zyyk-verse-windows-x86_64/SOURCE_OFFER.md \
+            "$final_assets/ZYYK-Verse-${version}-windows-x86_64-SOURCE_OFFER.md"
+          cp release-assets/zyyk-verse-windows-x86_64/SBOM.spdx.json \
+            "$final_assets/ZYYK-Verse-${version}-windows-x86_64-SBOM.spdx.json"
+          cp release-assets/zyyk-verse-windows-x86_64/AUDIT_REPORT.md \
+            "$final_assets/ZYYK-Verse-${version}-windows-x86_64-AUDIT_REPORT.md"
+          (cd "$final_assets" && sha256sum -- * > SHA256SUMS && sha256sum --check SHA256SUMS)
+          gh release create "$GITHUB_REF_NAME" "$final_assets"/* \
             --verify-tag \
             --notes-file "$release_notes" \
             --title "ZYYK Verse ${GITHUB_REF_NAME#v}"
