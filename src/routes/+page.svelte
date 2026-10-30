@@ -41,7 +41,7 @@
     saveProject,
     writeExportFile,
   } from '#lib/services/projectBackend.ts';
-  import { audioEngine } from '#lib/services/audioEngine.ts';
+  import { audioEngine, normalizeVolume } from '#lib/services/audioEngine.ts';
   import { normalizeLocale, supportedLocales, translate, type Locale, type TranslationParams } from '#lib/i18n.ts';
   import { insertVaultEntry, moveVaultEntryInTree, removeVaultEntry, renameVaultEntryInTree, vaultCreatePlacement } from '#lib/domain/vault.ts';
   import {
@@ -135,6 +135,7 @@
   const pendingTextareaResizes = new Set<HTMLTextAreaElement>();
   let timelineZoom = $state(1);
   let editorZoom = $state(1);
+  let audioVolume = $state(1);
   const syncRole: SyncRole = 'translation';
   let draggingCue: {
     cue: SyncCue;
@@ -936,11 +937,14 @@
     if (!vaultPath || !draggedVaultPath || draggedVaultPath === targetDirectory) return;
     const source = draggedVaultPath;
     draggedVaultPath = null;
+    const activeInsideSource = filePath === source || Boolean(filePath?.startsWith(`${source}/`));
+    if (activeInsideSource && dirty && !(await saveCurrent(true))) return;
     try {
       const moved = await moveVaultEntry(vaultPath, source, targetDirectory);
-      if (filePath === source || filePath?.startsWith(`${source}/`)) {
+      if (activeInsideSource && filePath) {
         filePath = filePath.replace(source, moved);
         localStorage.setItem('zyykVerse.lastProject', filePath);
+        await loadProjectAudio();
       }
       vaultEntries = moveVaultEntryInTree(vaultEntries, vaultPath, source, targetDirectory, moved);
       if (!expandedFolderPaths.includes(targetDirectory)) expandedFolderPaths = [...expandedFolderPaths, targetDirectory];
@@ -1526,6 +1530,11 @@
     console.error(`[ZYYK Verse: ${context}]`, error);
   }
 
+  function updateAudioVolume(value: number) {
+    audioVolume = audioEngine.setVolume(normalizeVolume(value));
+    localStorage.setItem('zyykVerse.audioVolume', String(audioVolume));
+  }
+
   function updateEditorZoom(value: number) {
     editorZoom = Math.max(1, Math.min(1.4, Number.isFinite(value) ? value : 1));
     localStorage.setItem('zyykVerse.editorZoom', String(editorZoom));
@@ -1541,6 +1550,9 @@
     setLocale(localStorage.getItem('zyykVerse.locale') ?? navigator.language);
     const storedEditorZoom = Number(localStorage.getItem('zyykVerse.editorZoom'));
     if (Number.isFinite(storedEditorZoom)) editorZoom = Math.max(1, Math.min(1.4, storedEditorZoom));
+    const storedAudioVolume = localStorage.getItem('zyykVerse.audioVolume');
+    const parsedAudioVolume = storedAudioVolume === null ? 1 : Number(storedAudioVolume);
+    updateAudioVolume(Number.isFinite(parsedAudioVolume) ? parsedAudioVolume : 1);
     const handleKeydown = (event: KeyboardEvent) => {
       const primary = event.ctrlKey || event.metaKey;
       if (primary && event.key.toLowerCase() === 's') {
@@ -1844,6 +1856,7 @@
       <div class="audio-identity"><span>♫</span><strong>{project.audio?.originalName ?? t('noAudio')}</strong></div>
       <button class="transport-play" onclick={togglePlayback} disabled={!audioReady} aria-label={playbackRequested ? t('pause') : t('play')}>{playbackRequested ? '❚❚' : '▶'}</button>
       <span class="transport-time">{formatClock(currentTime, true)} <i>/</i> {formatClock(audioDuration, true)}</span>
+      <label class="volume-control" title={t('volume')}><span>{t('volume')}</span><input type="range" min="0" max="1" step="0.01" value={audioVolume} oninput={(event) => updateAudioVolume(Number(event.currentTarget.value))} aria-label={t('volume')} /><output>{Math.round(audioVolume * 100)}%</output></label>
       <span class="frame-hint" title={t('frameHint')}>← 1 {t('frame')} · {TIMELINE_FPS} fps · 1 {t('frame')} →</span>
       <label class="zoom-control">{t('zoom')} <input type="range" min="1" max="32" step="0.5" bind:value={timelineZoom} /></label>
       <button class="button quiet" onclick={openExportModal} disabled={!activeTrack?.cues.length}>{t('exportAction')}</button>

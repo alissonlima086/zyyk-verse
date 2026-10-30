@@ -13,6 +13,7 @@ plugins=(
   libgstgio.so
   libgstapp.so
   libgstaudioconvert.so
+  libgstinterleave.so
   libgstaudioresample.so
   libgstaudiorate.so
   libgstvolume.so
@@ -68,7 +69,7 @@ for plugin_path in "$TARGET_DIR"/libgst*.so; do
 done | sort > "$POLICY_FILE"
 
 required_elements=(
-  playbin3 decodebin3 audioconvert audioresample volume
+  playbin3 decodebin3 audioconvert deinterleave audioresample volume
   mpg123audiodec flacdec vorbisdec opusdec wavparse mpegaudioparse
 )
 for element in "${required_elements[@]}"; do

@@ -134,8 +134,55 @@ pub fn move_entry(root: &Path, source: &Path, target_directory: &Path) -> Result
     if destination.exists() {
         return Err("Já existe um item com esse nome na pasta de destino.".to_owned());
     }
+
+    let managed_assets = if source.is_file()
+        && source.extension().and_then(|value| value.to_str()) == Some("zyykverse")
+    {
+        let project = persistence::load_project(&source)?;
+        let source_assets = managed_assets_directory(&source, &project.metadata.id)?;
+        let destination_assets = managed_assets_directory(&destination, &project.metadata.id)?;
+        source_assets
+            .is_dir()
+            .then_some((source_assets, destination_assets))
+    } else {
+        None
+    };
+
+    if let Some((_, destination_assets)) = managed_assets.as_ref() {
+        if destination_assets.exists() {
+            return Err("Já existem recursos deste projeto na pasta de destino.".to_owned());
+        }
+        fs::create_dir_all(
+            destination_assets
+                .parent()
+                .ok_or_else(|| "A pasta de destino dos recursos não é válida.".to_owned())?,
+        )
+        .map_err(|error| format!("Não foi possível preparar os recursos no destino: {error}"))?;
+    }
+
     fs::rename(&source, &destination)
         .map_err(|error| format!("Não foi possível mover o item: {error}"))?;
+
+    if let Some((source_assets, destination_assets)) = managed_assets {
+        if let Err(error) = fs::rename(&source_assets, &destination_assets) {
+            let rollback = fs::rename(&destination, &source);
+            if let Some(destination_assets_root) = destination_assets.parent() {
+                let _ = fs::remove_dir(destination_assets_root);
+            }
+            return match rollback {
+                Ok(()) => Err(format!(
+                    "Não foi possível mover os recursos do projeto; o projeto permaneceu no local original: {error}"
+                )),
+                Err(rollback_error) => Err(format!(
+                    "Não foi possível mover os recursos do projeto ({error}) nem restaurar o arquivo original ({rollback_error})."
+                )),
+            };
+        }
+        if let Some(source_assets_root) = source_assets.parent() {
+            let _ = fs::remove_dir(source_assets_root);
+        }
+    }
+
     Ok(display_path(&destination))
 }
 
@@ -425,6 +472,14 @@ mod tests {
 
         let folder = create_folder(&root, None, "Álbum").unwrap();
         let created = create_project(&root, None, "Minha música").unwrap();
+        let source_audio = root.join("source.wav");
+        fs::write(&source_audio, b"fake audio bytes").unwrap();
+        let imported = import_audio(
+            &source_audio,
+            Path::new(&created.path),
+            &created.project.metadata.id,
+        )
+        .unwrap();
         let moved = move_entry(&root, Path::new(&created.path), Path::new(&folder)).unwrap();
         let entries = list(&root).unwrap();
 
@@ -433,6 +488,46 @@ mod tests {
         assert_eq!(entries[0].children.len(), 1);
         assert_eq!(entries[0].children[0].name, "Minha música");
         assert_eq!(entries[0].children[0].path, moved);
+        assert!(Path::new(
+            &resolve_audio(Path::new(&moved), Path::new(&imported.relative_path)).unwrap()
+        )
+        .is_file());
+        assert!(!root
+            .join(".zyykverse-assets")
+            .join(&created.project.metadata.id)
+            .exists());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn keeps_project_and_audio_in_place_when_destination_assets_collide() {
+        let root =
+            std::env::temp_dir().join(format!("zyyk-verse-move-collision-{}", Uuid::new_v4()));
+        fs::create_dir_all(&root).unwrap();
+        let folder = create_folder(&root, None, "Destino").unwrap();
+        let created = create_project(&root, None, "Minha música").unwrap();
+        let source_audio = root.join("source.wav");
+        fs::write(&source_audio, b"fake audio bytes").unwrap();
+        let imported = import_audio(
+            &source_audio,
+            Path::new(&created.path),
+            &created.project.metadata.id,
+        )
+        .unwrap();
+        fs::create_dir_all(
+            Path::new(&folder)
+                .join(".zyykverse-assets")
+                .join(&created.project.metadata.id),
+        )
+        .unwrap();
+
+        assert!(move_entry(&root, Path::new(&created.path), Path::new(&folder)).is_err());
+        assert!(Path::new(&created.path).is_file());
+        assert!(Path::new(
+            &resolve_audio(Path::new(&created.path), Path::new(&imported.relative_path)).unwrap()
+        )
+        .is_file());
+        assert!(!Path::new(&folder).join("Minha música.zyykverse").exists());
         let _ = fs::remove_dir_all(root);
     }
 

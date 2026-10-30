@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { extractWaveformPeaks } from '../src/lib/services/audioEngine.ts';
+import { extractWaveformPeaks, normalizeVolume } from '../src/lib/services/audioEngine.ts';
+
+test('normaliza o volume para o intervalo aceito pelo ganho', () => {
+  assert.equal(normalizeVolume(-0.5), 0);
+  assert.equal(normalizeVolume(0.42), 0.42);
+  assert.equal(normalizeVolume(2), 1);
+  assert.equal(normalizeVolume(Number.NaN), 1);
+});
 
 test('extrai uma waveform compacta dos canais do buffer já decodificado', () => {
   const left = new Float32Array([0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7]);

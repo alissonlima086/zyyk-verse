@@ -154,8 +154,8 @@ if [[ "$RESUME" == false ]]; then
     echo "main local não está sincronizada com origin/main." >&2
     exit 1
   }
-  [[ -n "$(git status --porcelain)" ]] || {
-    echo "Não há mudanças para publicar. Preencha [Unreleased] e implemente as alterações primeiro." >&2
+  [[ -z "$(git status --porcelain)" ]] || {
+    echo "A árvore de trabalho precisa estar limpa antes de preparar o release." >&2
     exit 1
   }
   git ls-remote --exit-code --tags origin "refs/tags/v$VERSION" >/dev/null 2>&1 && {
