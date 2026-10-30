@@ -17,7 +17,7 @@ Os projetos são armazenados localmente em uma vault escolhida pelo usuário. Ca
 - Associação de áudio MP3, FLAC, WAV ou OGG ao projeto.
 - Visualização de waveform, playhead, zoom e cues ajustáveis.
 - Sincronização de linhas traduzidas com precisão temporal.
-- Exportação da trilha sincronizada no formato SRT.
+- Exportação da trilha sincronizada nos formatos SRT, WebVTT e LRC.
 
 ## Especificações técnicas
 
@@ -28,12 +28,21 @@ Os projetos são armazenados localmente em uma vault escolhida pelo usuário. Ca
 | Backend local | Rust |
 | Build do frontend | Vite |
 | Persistência | Arquivos JSON com extensão `.zyykverse` |
-| Áudio | WebKitGTK e GStreamer |
+| Áudio | Web Audio/WebView2 no Windows; WebKitGTK e GStreamer no Linux |
 | Distribuição Linux | AppImage para arquiteturas x86_64 e ARM64 |
+| Distribuição Windows | Instalador NSIS x64 não assinado |
 
 A aplicação utiliza uma arquitetura local-first. O frontend gerencia a edição e a interação com a timeline, enquanto o backend Rust valida caminhos, persiste projetos, organiza a vault, gerencia recursos de áudio e fornece o conteúdo de mídia para reprodução local.
 
 O formato `.zyykverse` mantém metadados, segmentos da letra original, unidades de tradução, alinhamentos e trilhas de sincronização. Arquivos de áudio importados são copiados para uma área gerenciada próxima ao projeto, mantendo referências relativas e portabilidade dentro da vault.
+
+O instalador Windows inicial é distribuído sem assinatura digital para manter o
+projeto sem custos. Antes de ignorar um possível alerta do Microsoft Defender
+SmartScreen, confira se o arquivo veio da GitHub Release oficial e valide seu
+SHA-256 pelo `SHA256SUMS` publicado junto da versão.
+
+O roteiro de validação da plataforma está em
+[WINDOWS_TESTING.md](WINDOWS_TESTING.md).
 
 ## Licença
 
