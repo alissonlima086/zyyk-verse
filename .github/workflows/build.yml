@@ -310,3 +310,233 @@ jobs:
             src-tauri/target/release/bundle/appimage/SHA256SUMS
           if-no-files-found: error
           retention-days: 14
+
+  build-windows:
+    name: Windows x64 NSIS (unsigned)
+    needs: release-state
+    if: needs.release-state.outputs.should-build == 'true'
+    runs-on: windows-2022
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Configure Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Configure Rust MSVC
+        uses: dtolnay/rust-toolchain@7dcc700092a1a8b9c17ba0e140b4e34e93000946 # 1.90.0
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Restore Rust and Tauri cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            ~/.cache/tauri
+            src-tauri/target
+          key: ${{ runner.os }}-${{ runner.arch }}-candidate-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-candidate-
+            ${{ runner.os }}-${{ runner.arch }}-preview-
+
+      - name: Install JavaScript dependencies
+        run: npm ci
+
+      - name: Validate versions
+        shell: pwsh
+        run: |
+          $packageVersion = node --print "require('./package.json').version"
+          $tauriVersion = node --print "require('./src-tauri/tauri.conf.json').version"
+          $cargoVersion = cargo metadata --manifest-path src-tauri/Cargo.toml --no-deps --format-version 1 | ConvertFrom-Json | Select-Object -ExpandProperty packages | Select-Object -First 1 -ExpandProperty version
+          if ($packageVersion -ne $tauriVersion -or $packageVersion -ne $cargoVersion) {
+            throw "Version mismatch: package=$packageVersion tauri=$tauriVersion cargo=$cargoVersion"
+          }
+
+      - name: Validate sources on Windows
+        run: |
+          npm run test
+          npm run check
+          npm audit --audit-level=high
+          cargo test --manifest-path src-tauri/Cargo.toml --locked
+
+      - name: Build unsigned NSIS candidate
+        run: npm run tauri -- build --bundles nsis --ci
+
+      - name: Validate unsigned installer
+        id: installer
+        shell: pwsh
+        run: |
+          $installers = @(Get-ChildItem "src-tauri/target/release/bundle/nsis/*-setup.exe")
+          if ($installers.Count -ne 1) {
+            throw "Expected exactly one NSIS installer; found $($installers.Count)."
+          }
+          $installer = $installers[0]
+          $signature = Get-AuthenticodeSignature $installer.FullName
+          if ($signature.Status -ne "NotSigned") {
+            throw "The zero-cost Windows candidate must be explicitly unsigned; status is $($signature.Status)."
+          }
+          "path=$($installer.FullName)" >> $env:GITHUB_OUTPUT
+
+      - name: Upload NSIS for compliance packaging
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: windows-nsis-intermediate
+          path: ${{ steps.installer.outputs.path }}
+          if-no-files-found: error
+          retention-days: 2
+
+  package-windows:
+    name: Windows x64 compliance
+    needs: [release-state, build-windows]
+    if: needs.release-state.outputs.should-build == 'true'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 35
+    env:
+      ZYYK_RUST_TARGET: x86_64-pc-windows-msvc
+      ZYYK_RELEASE_ARCH: windows-x86_64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Configure Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Configure Rust
+        uses: dtolnay/rust-toolchain@7dcc700092a1a8b9c17ba0e140b4e34e93000946 # 1.90.0
+
+      - name: Restore Cargo compliance cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: |
+            ~/.cargo/bin/cargo-about
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+          key: ${{ runner.os }}-windows-compliance-${{ hashFiles('src-tauri/Cargo.lock') }}-about-${{ env.CARGO_ABOUT_VERSION }}
+          restore-keys: |
+            ${{ runner.os }}-windows-compliance-${{ hashFiles('src-tauri/Cargo.lock') }}-
+            ${{ runner.os }}-cargo-
+
+      - name: Install JavaScript dependencies
+        run: npm ci
+
+      - name: Install pinned cargo-about
+        shell: bash
+        run: |
+          if ! cargo about --version 2>/dev/null | grep --fixed-strings --quiet "$CARGO_ABOUT_VERSION"; then
+            cargo install --locked --version "$CARGO_ABOUT_VERSION" --features cli cargo-about
+          fi
+          cargo about --version
+
+      - name: Download Windows installer from this commit
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.0
+        with:
+          name: windows-nsis-intermediate
+          path: windows-release
+
+      - name: Validate downloaded installer
+        id: installer
+        shell: bash
+        run: |
+          shopt -s nullglob
+          installers=(windows-release/*-setup.exe)
+          if [[ "${#installers[@]}" -ne 1 ]]; then
+            echo "Expected exactly one downloaded NSIS installer; found ${#installers[@]}." >&2
+            exit 1
+          fi
+          echo "path=${installers[0]}" >> "$GITHUB_OUTPUT"
+
+      - name: Build frontend inventory
+        run: npm run build
+
+      - name: Generate Windows Rust notices
+        shell: bash
+        working-directory: src-tauri
+        run: |
+          mkdir -p ../.compliance/windows
+          sed 's|^targets = .*|targets = ["x86_64-pc-windows-msvc"]|' \
+            ../.github/compliance/about.toml > ../.compliance/windows/about.toml
+          cargo about generate \
+            --locked \
+            --fail \
+            --config ../.compliance/windows/about.toml \
+            --output-file ../.compliance/windows/rust-notices.md \
+            ../.github/compliance/rust-notices.hbs
+
+      - name: Fetch pinned Windows packaging notices
+        shell: bash
+        run: |
+          curl --fail --location --silent --show-error \
+            https://raw.githubusercontent.com/NSIS-Dev/nsis/v313/COPYING \
+            --output .compliance/windows/NSIS-COPYING
+          echo "6cc665347be5c84b76bf0fd6f85fbb0c33261e89b3408aa3e3e55dbe95e12d89  .compliance/windows/NSIS-COPYING" | sha256sum --check
+          curl --fail --location --silent --show-error \
+            https://raw.githubusercontent.com/tauri-apps/nsis-tauri-utils/nsis_tauri_utils-v0.5.3/LICENSE_MIT \
+            --output .compliance/windows/NSIS-TAURI-UTILS-LICENSE-MIT
+          echo "1c1020fa10a6bf318717e82c911bcc54ebdfb9bb280460ae332bcb2f82f57fbe  .compliance/windows/NSIS-TAURI-UTILS-LICENSE-MIT" | sha256sum --check
+          curl --fail --location --silent --show-error \
+            https://raw.githubusercontent.com/tauri-apps/nsis-tauri-utils/nsis_tauri_utils-v0.5.3/LICENSE_APACHE-2.0 \
+            --output .compliance/windows/NSIS-TAURI-UTILS-LICENSE-APACHE
+          echo "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594  .compliance/windows/NSIS-TAURI-UTILS-LICENSE-APACHE" | sha256sum --check
+
+      - name: Generate Windows compliance documents
+        shell: bash
+        run: |
+          node .github/compliance/windows-audit.mjs \
+            --installer "${{ steps.installer.outputs.path }}" \
+            --frontend-inventory .compliance/frontend-packages.json \
+            --rust-notices .compliance/windows/rust-notices.md \
+            --nsis-notice .compliance/windows/NSIS-COPYING \
+            --utils-mit-notice .compliance/windows/NSIS-TAURI-UTILS-LICENSE-MIT \
+            --utils-apache-notice .compliance/windows/NSIS-TAURI-UTILS-LICENSE-APACHE \
+            --output-dir .compliance/windows
+
+      - name: Preserve corresponding copyleft sources
+        shell: bash
+        run: |
+          version="$(node --print "require('./package.json').version")"
+          bash .github/compliance/collect-copyleft-sources.sh \
+            ".compliance/windows/ZYYK-Verse-${version}-windows-x86_64-third-party-copyleft-sources.tar.gz" \
+            windows-x86_64 \
+            .compliance/windows
+
+      - name: Prepare final Windows candidate
+        shell: bash
+        run: |
+          cp LICENSE windows-release/
+          cp .compliance/windows/THIRD_PARTY_NOTICES.md windows-release/
+          cp .compliance/windows/SOURCE_OFFER.md windows-release/
+          cp .compliance/windows/SBOM.spdx.json windows-release/
+          cp .compliance/windows/AUDIT_REPORT.md windows-release/
+          cp .compliance/windows/ZYYK-Verse-*-third-party-copyleft-sources.tar.gz windows-release/
+          cd windows-release
+          sha256sum -- *.exe *.md *.json *.tar.gz > SHA256SUMS
+          sha256sum --check SHA256SUMS
+
+      - name: Publish Windows candidate for this commit
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: zyyk-verse-windows-x86_64
+          path: |
+            windows-release/*-setup.exe
+            windows-release/*.md
+            windows-release/*.json
+            windows-release/*.tar.gz
+            windows-release/LICENSE
+            windows-release/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 14
