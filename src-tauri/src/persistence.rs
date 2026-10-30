@@ -187,6 +187,44 @@ mod tests {
         let _ = fs::remove_dir_all(root);
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn preserves_the_project_and_removes_the_temporary_file_when_destination_is_locked() {
+        use std::fs::OpenOptions;
+        use std::os::windows::fs::OpenOptionsExt;
+
+        const FILE_SHARE_READ: u32 = 0x0000_0001;
+        const FILE_SHARE_WRITE: u32 = 0x0000_0002;
+
+        let root = std::env::temp_dir().join(format!("zyyk-verse-test-{}", Uuid::new_v4()));
+        let path = root.join("song.zyykverse");
+        let saved = save_project(VerseProject::new("Original"), &path).unwrap();
+        let mut updated = saved.clone();
+        updated.metadata.title = "Updated".to_owned();
+
+        // Excluding FILE_SHARE_DELETE reproduces an application holding the
+        // destination open and prevents Windows from replacing it by rename.
+        let locked = OpenOptions::new()
+            .read(true)
+            .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+            .open(&path)
+            .unwrap();
+        let error = save_project(updated, &path).unwrap_err();
+
+        assert!(error.contains("Não foi possível publicar o projeto salvo"));
+        assert_eq!(load_project(&path).unwrap(), saved);
+        assert!(fs::read_dir(&root).unwrap().all(|entry| {
+            !entry
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".zyyk-verse-")
+        }));
+
+        drop(locked);
+        let _ = fs::remove_dir_all(root);
+    }
+
     #[test]
     fn reads_the_project_contract_fixture_shared_with_typescript() {
         let project: VerseProject =
