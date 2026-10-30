@@ -5,6 +5,10 @@ export interface DecodedAudioBuffer {
   getChannelData(channel: number): Float32Array;
 }
 
+export function normalizeVolume(value: number): number {
+  return Math.max(0, Math.min(1, Number.isFinite(value) ? value : 1));
+}
+
 export function extractWaveformPeaks(
   buffer: DecodedAudioBuffer,
   peakCount = 1_400,
@@ -39,6 +43,7 @@ class VerseAudioEngine {
   private startedAt = 0;
   private operation = 0;
   private ended: (() => void) | null = null;
+  private volume = 1;
 
   private getContext(): AudioContext {
     if (!this.context) {
@@ -125,6 +130,14 @@ class VerseAudioEngine {
     return this.source !== null;
   }
 
+  setVolume(value: number): number {
+    this.volume = normalizeVolume(value);
+    if (this.gain && this.context) {
+      this.gain.gain.setValueAtTime(this.volume, this.context.currentTime);
+    }
+    return this.volume;
+  }
+
   get duration(): number {
     return this.buffer?.duration ?? 0;
   }
@@ -145,6 +158,7 @@ class VerseAudioEngine {
     }
     const source = context.createBufferSource();
     const gain = context.createGain();
+    gain.gain.value = this.volume;
     source.buffer = buffer;
     source.connect(gain);
     gain.connect(context.destination);

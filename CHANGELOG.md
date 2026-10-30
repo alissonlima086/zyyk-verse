@@ -12,6 +12,10 @@ e o projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ### English
 
+#### Added
+
+- A persistent audio-volume slider in the timeline transport bar.
+
 #### Changed
 
 - Public GitHub Releases now contain only the two Linux AppImages and the
@@ -20,7 +24,18 @@ e o projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 - Release automation now waits for GitHub to register pull-request checks
   before watching them, avoiding a false failure immediately after PR creation.
 
+#### Fixed
+
+- Packaged AppImages now include the GStreamer `deinterleave` element required
+  by WebKit to decode both original audio and the native WAV fallback.
+- Moving an individual project between vault folders now moves its managed
+  audio assets atomically and reloads audio when the project is open.
+
 ### Português
+
+#### Adicionado
+
+- Controle persistente de volume do áudio na barra de transporte da timeline.
 
 #### Alterado
 
@@ -29,6 +44,15 @@ e o projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
   restritos aos artefatos internos dos candidatos de build.
 - A automação de release agora aguarda o GitHub registrar os checks do pull
   request antes de acompanhá-los, evitando uma falha falsa logo após criar o PR.
+
+#### Corrigido
+
+- AppImages empacotados agora incluem o elemento `deinterleave` do GStreamer,
+  exigido pelo WebKit para decodificar tanto o áudio original quanto o fallback
+  WAV nativo.
+- Mover um projeto individual entre pastas da vault agora move atomicamente
+  seus recursos de áudio gerenciados e recarrega o áudio se o projeto estiver
+  aberto.
 
 ## [0.1.5] - 2026-10-30
 

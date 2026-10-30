@@ -40,9 +40,6 @@ O instalador Windows inicial é distribuído sem assinatura digital para manter 
 projeto sem custos. Antes de ignorar um possível alerta do Microsoft Defender
 SmartScreen, confira se o arquivo veio da GitHub Release oficial.
 
-O roteiro de validação da plataforma está em
-[WINDOWS_TESTING.md](WINDOWS_TESTING.md).
-
 ## Licença
 
 Copyright (C) 2026 Alisson Lima.

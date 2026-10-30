@@ -230,6 +230,10 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .transport-play:disabled { opacity: .4; }
 .transport-time { color: var(--text-secondary); font: 9px ui-monospace, monospace; white-space: nowrap; }
 .transport-time i { color: var(--text-muted); font-style: normal; }
+.volume-control { display: flex; align-items: center; gap: 4px; color: var(--text-muted); font-size: 9px; }
+.volume-control span { color: var(--text-secondary); }
+.volume-control input { width: 68px; accent-color: var(--accent); }
+.volume-control output { width: 27px; color: var(--text-secondary); font: 8px ui-monospace, monospace; text-align: right; }
 .frame-hint { color: var(--text-muted); font: 8px ui-monospace, monospace; white-space: nowrap; }
 .zoom-control { margin-left: auto; display: flex; align-items: center; gap: 5px; color: var(--text-muted); font-size: 9px; }
 .zoom-control input { width: 72px; accent-color: var(--accent); }
